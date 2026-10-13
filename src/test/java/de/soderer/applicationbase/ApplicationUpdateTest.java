@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 import org.junit.jupiter.api.Test;
 
-import de.soderer.applicationbase.ApplicationUpdateUtilities;
 import de.soderer.utilities.Version;
 
 @SuppressWarnings("static-method")
