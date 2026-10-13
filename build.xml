@@ -40,17 +40,11 @@
 			</fileset>
 		</delete>
 
-		<!-- ConfigurationProperties (after moving it from soderer-utilities to this library) -->
 		<getDependency name="csv" version="${csv.version}" url="https://github.com/hudeany/csv/releases/download/{version}/csv-{version}.jar" />
-		<!-- ApplicationUpdateUtilities: version info (JSON, GitHub API) -->
 		<getDependency name="json" version="${json.version}" url="https://github.com/hudeany/json/releases/download/{version}/json-{version}.jar" />
-		<!-- ApplicationUpdateUtilities: HTTP download, network check -->
 		<getDependency name="network" version="${network.version}" url="https://github.com/hudeany/Network/releases/download/{version}/network-{version}.jar" />
-		<!-- ApplicationUpdateUtilities, ApplicationConfigurationDialog: proxy configuration -->
 		<getDependency name="proxyautoconfig" version="${proxyautoconfig.version}" url="https://github.com/hudeany/ProxyAutoConfig/releases/download/{version}/proxyautoconfig-{version}.jar" />
-		<!-- UpdateableConsoleApplication -->
 		<getDependency name="soderer-console" version="${soderer-console.version}" url="https://github.com/hudeany/Console/releases/download/{version}/soderer-console-{version}.jar" />
-		<!-- UpdateableGuiApplication, ApplicationConfigurationDialog -->
 		<getDependency name="soderer-swing" version="${soderer-swing.version}" url="https://github.com/hudeany/Swing/releases/download/{version}/soderer-swing-{version}.jar" />
 		<getDependency name="soderer-utilities" version="${soderer-utilities.version}" url="https://github.com/hudeany/Utilities/releases/download/{version}/soderer-utilities-{version}.jar" />
 	</target>
