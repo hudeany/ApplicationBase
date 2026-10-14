@@ -9,22 +9,24 @@ import java.net.URI;
 import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.CertPathBuilder;
+import java.security.CodeSigner;
+import java.security.cert.CertPath;
+import java.security.cert.CertPathValidator;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
-import java.security.cert.PKIXBuilderParameters;
-import java.security.cert.PKIXCertPathBuilderResult;
+import java.security.cert.PKIXParameters;
 import java.security.cert.TrustAnchor;
-import java.security.cert.X509CertSelector;
 import java.security.cert.X509Certificate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.jar.JarEntry;
@@ -1197,9 +1199,14 @@ public class ApplicationUpdateUtilities {
 	}
 
 	/**
-	 * Checks that all files of a jar (except the manifest and the signature files) are signed with a currently valid
-	 * certificate, whose chain of trust leads to one of the given trusted certificates.
-	 * Revocation is not checked.
+	 * Checks that all files of a jar (except the manifest and the signature files) are signed by a signer, whose
+	 * complete certificate path (as contained in the signature) is currently valid and leads to one of the given
+	 * trusted certificates. Revocation is not checked.
+	 * <p>
+	 * The certificate path of each signer is validated as a whole. Validating single certificates of the
+	 * signature would be insecure: the certificate list of a signature is assembled by matching names only, so
+	 * an attacker could add a genuine intermediate CA certificate to a jar signed with his own key.
+	 * </p>
 	 *
 	 * @param jarFile jar file to check
 	 * @param trustedCertificates trusted CA certificates
@@ -1210,11 +1217,18 @@ public class ApplicationUpdateUtilities {
 			return false;
 		}
 
-		try (JarFile jar = new JarFile(jarFile)) {
+		try (JarFile jar = new JarFile(jarFile, true)) {
 			final Manifest manifest = jar.getManifest();
 			if (manifest == null) {
 				throw new SecurityException("The jar file has no manifest, which contains the file signatures");
 			}
+
+			final Set<TrustAnchor> trustAnchors = new HashSet<>();
+			for (final Certificate trustedRootCert : trustedCertificates) {
+				trustAnchors.add(new TrustAnchor((X509Certificate) trustedRootCert, null));
+			}
+			// The same signer signs all entries, so each certificate path is only validated once
+			final Map<CertPath, Boolean> validatedCertPaths = new HashMap<>();
 
 			final byte[] buffer = new byte[4096];
 			final Enumeration<JarEntry> jarEntriesEnumerator = jar.entries();
@@ -1233,31 +1247,27 @@ public class ApplicationUpdateUtilities {
 				// Other files in META-INF (e.g. "META-INF/versions/..." of multi-release jars, which may contain
 				// executable classes) must be signed too.
 				if (!jarEntry.isDirectory() && !isSignatureRelatedEntry(jarEntry.getName())) {
-					boolean isSignedByTrustedCert = false;
-
-					final Certificate[] certificates = jarEntry.getCertificates();
-					if ((certificates == null) || (certificates.length == 0)) {
+					final CodeSigner[] codeSigners = jarEntry.getCodeSigners();
+					if (codeSigners == null || codeSigners.length == 0) {
 						throw new SecurityException("The jar file contains unsigned files: " + jarEntry.getName());
-					} else {
-						for (final Certificate chainRootCertificate : certificates) {
-							if (chainRootCertificate instanceof X509Certificate) {
-								final X509Certificate x509ChainRootCertificate = (X509Certificate) chainRootCertificate;
-								try {
-									x509ChainRootCertificate.checkValidity();
-								} catch (@SuppressWarnings("unused") final Exception certificateValidityException) {
-									// Certificate is expired or not yet valid, it must not be trusted
-									continue;
-								}
-								if (verifyChainOfTrust(x509ChainRootCertificate, trustedCertificates)) {
-									isSignedByTrustedCert = true;
-									break;
-								}
-							}
+					}
+
+					boolean isSignedByTrustedSigner = false;
+					for (final CodeSigner codeSigner : codeSigners) {
+						final CertPath signerCertPath = codeSigner.getSignerCertPath();
+						Boolean isValid = validatedCertPaths.get(signerCertPath);
+						if (isValid == null) {
+							isValid = validateCertPath(signerCertPath, trustAnchors);
+							validatedCertPaths.put(signerCertPath, isValid);
+						}
+						if (isValid) {
+							isSignedByTrustedSigner = true;
+							break;
 						}
 					}
 
-					if (!isSignedByTrustedCert) {
-						throw new SecurityException("The jar file contains untrusted signed files");
+					if (!isSignedByTrustedSigner) {
+						throw new SecurityException("The jar file contains untrusted signed files: " + jarEntry.getName());
 					}
 				}
 			}
@@ -1269,27 +1279,49 @@ public class ApplicationUpdateUtilities {
 		}
 	}
 
-	private static boolean verifyChainOfTrust(final X509Certificate cert, final Collection<? extends Certificate> trustedCertificates) throws Exception {
-		final CertPathBuilder certifier = CertPathBuilder.getInstance("PKIX");
-		final X509CertSelector targetConstraints = new X509CertSelector();
-		targetConstraints.setCertificate(cert);
-
-		final Set<TrustAnchor> trustAnchors = new HashSet<>();
-		for (final Certificate trustedRootCert : trustedCertificates) {
-			trustAnchors.add(new TrustAnchor((X509Certificate) trustedRootCert, null));
-		}
-
-		final PKIXBuilderParameters params = new PKIXBuilderParameters(trustAnchors, targetConstraints);
-		// Revocation checking (CRL/OCSP) is disabled deliberately: it would require live network access
-		// (CRL/OCSP endpoints) during update verification, which may not be available in all deployment
-		// environments. Certificate validity period is checked separately in verifyJarSignature().
-		params.setRevocationEnabled(false);
+	/**
+	 * Validates a complete certificate path (signer certificate first) against the trust anchors, including the
+	 * validity periods of all its certificates.
+	 */
+	private static boolean validateCertPath(final CertPath certPath, final Set<TrustAnchor> trustAnchors) {
 		try {
-			final PKIXCertPathBuilderResult result = (PKIXCertPathBuilderResult) certifier.build(params);
-			return result != null;
-		} catch (@SuppressWarnings("unused") final Exception cpbe) {
+			if (certPath == null || certPath.getCertificates().isEmpty() || !(certPath.getCertificates().get(0) instanceof X509Certificate)) {
+				return false;
+			}
+
+			final X509Certificate signerCertificate = (X509Certificate) certPath.getCertificates().get(0);
+			if (isTrustAnchorCertificate(signerCertificate, trustAnchors)) {
+				// The signer certificate itself is trusted directly
+				signerCertificate.checkValidity();
+				return true;
+			}
+
+			// A trust anchor itself must not be part of the validated path
+			final List<Certificate> pathCertificates = new ArrayList<>(certPath.getCertificates());
+			while (pathCertificates.size() > 1 && isTrustAnchorCertificate(pathCertificates.get(pathCertificates.size() - 1), trustAnchors)) {
+				pathCertificates.remove(pathCertificates.size() - 1);
+			}
+
+			final CertPath pathToValidate = CertificateFactory.getInstance("X.509").generateCertPath(pathCertificates);
+			final PKIXParameters params = new PKIXParameters(trustAnchors);
+			// Revocation checking (CRL/OCSP) is disabled deliberately: it would require live network access
+			// (CRL/OCSP endpoints) during update verification, which may not be available in all deployment
+			// environments. The validity periods of the certificates are checked by the validator.
+			params.setRevocationEnabled(false);
+			CertPathValidator.getInstance("PKIX").validate(pathToValidate, params);
+			return true;
+		} catch (@SuppressWarnings("unused") final Exception e) {
 			return false;
 		}
+	}
+
+	private static boolean isTrustAnchorCertificate(final Certificate certificate, final Set<TrustAnchor> trustAnchors) {
+		for (final TrustAnchor trustAnchor : trustAnchors) {
+			if (certificate.equals(trustAnchor.getTrustedCert())) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
