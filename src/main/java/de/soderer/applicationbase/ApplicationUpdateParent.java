@@ -49,9 +49,15 @@ public interface ApplicationUpdateParent extends CredentialsParent {
 	boolean askForUpdate(Version availableNewVersion) throws Exception;
 
 	/**
-	 * Shows that the download of the update file has started.
+	 * Shows that the download of the update file is starting.
 	 *
-	 * @param worker worker executing the download, may be used to show its progress or to cancel it
+	 * <p>
+	 * The worker is not started yet. An implementation may start it itself (e.g. a modal progress dialog
+	 * starting it when it is shown and blocking until it is done). If the worker was not started when this
+	 * method returns, it is started by the caller afterwards. The worker must never be started twice.
+	 * </p>
+	 *
+	 * @param worker worker executing the download, may be used to show its progress, to start or to cancel it
 	 */
 	void showUpdateDownloadStart(WorkerSimple<Boolean> worker);
 

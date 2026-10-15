@@ -2,13 +2,14 @@ package de.soderer.applicationbase;
 
 import java.io.BufferedInputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.Proxy;
 import java.net.URI;
-import java.net.URL;
 import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.CodeSigner;
 import java.security.cert.CertPath;
 import java.security.cert.CertPathValidator;
@@ -17,8 +18,8 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.PKIXParameters;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Enumeration;
@@ -33,6 +34,9 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
+import javax.xml.XMLConstants;
+import javax.xml.parsers.DocumentBuilderFactory;
+
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
 
@@ -44,7 +48,6 @@ import de.soderer.network.HttpUtilities;
 import de.soderer.network.NetworkUtilities;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.utilities.Credentials;
-import de.soderer.utilities.IoUtilities;
 import de.soderer.utilities.LangResources;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Tuple;
@@ -55,22 +58,25 @@ import de.soderer.utilities.Version;
 import de.soderer.utilities.worker.FileCopyWorker;
 import de.soderer.utilities.worker.FileDownloadWorker;
 import de.soderer.utilities.worker.WorkerParentSimple;
+import de.soderer.utilities.worker.WorkerSimple;
 import de.soderer.utilities.xml.XmlUtilities;
 
 /**
  * Checks for, downloads and installs new versions of the running application jar.
  * <p>
- * versionIndexFileLocation may include placeholders:<br>
- * &nbsp;&nbsp;&lt;system&gt; : replaced by "windows" or "linux"<br>
+ * versionIndexFileLocation and the download location of the update file may include placeholders:<br>
+ * &nbsp;&nbsp;&lt;system&gt; : replaced by "windows", "linux" or "unix"<br>
  * &nbsp;&nbsp;&lt;bitmode&gt; : replaced by "32" or "64"<br>
- * &nbsp;&nbsp;&lt;username&gt; : interactive username dialog<br>
- * &nbsp;&nbsp;&lt;password&gt; : interactive password dialog<br>
  * &nbsp;&nbsp;&lt;time_seconds&gt; : current timestamp in seconds (used by sourceforge.net)
+ * <p>
+ * The download location of the update file may additionally include:<br>
+ * &nbsp;&nbsp;&lt;username&gt; : given username or interactive username dialog<br>
+ * &nbsp;&nbsp;&lt;password&gt; : given password or interactive password dialog
  * <p>
  * Supported version index locations are the JSON or XML index on soderer.de, the "latest release" API of
  * GitHub ("api.github.com"), any other http(s) URL providing the JSON index format, and local "file://" JSON
  * files. A downloaded update is only installed if its jar signature is trusted by one of the given CA
- * certificates, unless unsafe updates are explicitly allowed.
+ * certificates, unless unsafe updates are explicitly allowed (only for https and local update files).
  */
 public class ApplicationUpdateUtilities {
 	/**
@@ -86,6 +92,21 @@ public class ApplicationUpdateUtilities {
 	 * Return value of InputStream read methods at the end of the stream.
 	 */
 	public static final int EOF = -1;
+
+	/** Timeout for establishing http connections of the version check */
+	private static final int CONNECT_TIMEOUT_MILLIS = 30_000;
+
+	/** Timeout for reading data of the version check */
+	private static final int READ_TIMEOUT_MILLIS = 60_000;
+
+	/** Name prefix of the restarter jar files in the temp directory */
+	private static final String RESTARTER_FILE_PREFIX = "Restarter_";
+
+	/** Name prefix of the updater jar file next to the application jar */
+	private static final String UPDATER_FILE_PREFIX = "Updater_";
+
+	/** Name prefix of the downloaded update file next to the application jar */
+	private static final String DOWNLOAD_TEMP_FILE_PREFIX = "temp_";
 
 	private ApplicationUpdateUtilities() {
 		// Utility class with static methods only
@@ -106,8 +127,8 @@ public class ApplicationUpdateUtilities {
 	 * @param password password for "&lt;password&gt;" in the download URL, may be null
 	 * @param appParameters parameters for restarting the application after the update, may be null
 	 * @param restartAfterUpdate true to restart the application after the update
-	 * @param allowUnsafeUpdates true to allow updates without signature check, if no trusted CA certificates are given
-	 * @return true if the check (and a possible update) was executed without error, false if an error was shown via updateParent
+	 * @param allowUnsafeUpdates true to allow updates without signature check (only via https or local files), if no trusted CA certificates are given
+	 * @return true if the check (and a possible update) was executed without error, false if an error was shown via updateParent or the user canceled the update
 	 * @throws Exception if an error occurred and no updateParent is given to show it
 	 */
 	public static boolean executeUpdate(
@@ -130,8 +151,20 @@ public class ApplicationUpdateUtilities {
 			final Tuple<Version, String> newVersionAvailable = checkForNewVersionAvailable(versionIndexFileLocation, proxyConfiguration, applicationName, applicationVersion);
 			if ((newVersionAvailable != null && username != null)
 					|| askForUpdate(updateParent, newVersionAvailable != null ? newVersionAvailable.getFirst() : null)) {
+				if (newVersionAvailable == null) {
+					// Nothing to install (an ApplicationUpdateParent must not confirm a missing version)
+					return true;
+				}
+
 				final List<String> jvmParameters = SystemUtilities.getCurrentJvmParameters();
-				updateApplication(updateParent, newVersionAvailable != null ? newVersionAvailable.getSecond() : null, proxyConfiguration, trustedCaCertificateFileNames, username, password, jvmParameters, appParameters, restartAfterUpdate, allowUnsafeUpdates);
+				// On success the application exits within updateApplication()
+				final boolean updated = updateApplication(updateParent, newVersionAvailable.getSecond(), proxyConfiguration, trustedCaCertificateFileNames, username, password, jvmParameters, appParameters, restartAfterUpdate, allowUnsafeUpdates);
+				if (!updated) {
+					if (updateParent == null) {
+						throw new Exception("Update to version " + newVersionAvailable.getFirst() + " was not successful, see error output");
+					}
+					return false;
+				}
 			}
 			return true;
 		} catch (final Exception e) {
@@ -155,173 +188,189 @@ public class ApplicationUpdateUtilities {
 	 * @throws Exception if the version index is not reachable or invalid
 	 */
 	public static Tuple<Version, String> checkForNewVersionAvailable(final String versionIndexFileLocation, final ProxyConfiguration proxyConfiguration, final String applicationName, final Version applicationVersion) throws Exception {
-		try {
-			if (Utilities.isEmpty(versionIndexFileLocation)) {
-				throw new Exception("Invalid version index location");
-			} else if (!NetworkUtilities.checkForNetworkConnection()) {
+		if (Utilities.isEmpty(versionIndexFileLocation)) {
+			throw new Exception("Invalid version index location");
+		}
+
+		final String indexLocation = replacePlaceholders(versionIndexFileLocation);
+		final String indexLocationLowerCase = indexLocation.toLowerCase(Locale.ROOT);
+
+		final Tuple<Version, String> availableVersionData;
+		if (indexLocationLowerCase.startsWith("http://") || indexLocationLowerCase.startsWith("https://")) {
+			// Network checks only for remote indexes, a local index must also work offline
+			if (!NetworkUtilities.checkForNetworkConnection()) {
 				throw new Exception("error.missingNetworkConnection");
 			}
-
-			Version availableVersion = null;
-			String updateFileLocation = null;
-			if (versionIndexFileLocation.toLowerCase().startsWith("http://") || versionIndexFileLocation.toLowerCase().startsWith("https://")) {
-				if (!NetworkUtilities.ping(versionIndexFileLocation, proxyConfiguration == null ? Proxy.NO_PROXY : proxyConfiguration.getProxy(versionIndexFileLocation))) {
-					if (proxyConfiguration == null) {
-						throw new Exception("error.missingInternetConnection: " + versionIndexFileLocation);
-					} else {
-						throw new Exception("error.missingInternetConnection (using ProxyConfiguration " + proxyConfiguration.getProxyConfigurationType() + "): " + versionIndexFileLocation);
-					}
-				}
-				final String hostname = NetworkUtilities.getHostnameFromRequestString(versionIndexFileLocation);
-				if ("soderer.de".equalsIgnoreCase(hostname)) {
-					if (versionIndexFileLocation.toLowerCase().contains("json")) {
-						final URLConnection urlConnection = URI.create(versionIndexFileLocation).toURL().openConnection(proxyConfiguration == null ? Proxy.NO_PROXY : proxyConfiguration.getProxy(versionIndexFileLocation));
-						urlConnection.setRequestProperty("Pragma", "no-cache");
-						try (JsonReader jsonReader = new JsonReader(new BufferedInputStream(urlConnection.getInputStream()))) {
-							final JsonNode jsonNode = jsonReader.read();
-							if (!jsonNode.isJsonObject()) {
-								throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "'");
-							} else {
-								final JsonObject jsonObject = (JsonObject) jsonNode;
-								final JsonObject applicationJsonObject = (JsonObject) jsonObject.get(applicationName);
-								if (applicationJsonObject == null) {
-									throw new Exception("Version index not found at location '" + versionIndexFileLocation + "'");
-								} else {
-									try {
-										availableVersion = new Version((String) applicationJsonObject.getSimpleValue("version"));
-										updateFileLocation = (String) applicationJsonObject.getSimpleValue("downloadUrl");
-									} catch (final Exception e) {
-										throw new Exception("Invalid application version entry at location '" + versionIndexFileLocation + "'", e);
-									}
-								}
-							}
-						} catch (final Exception e) {
-							throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "':\n" + e.getMessage(), e);
-						}
-					} else {
-						Document versionsDocument = null;
-						if (versionIndexFileLocation.toLowerCase().startsWith("http")) {
-							versionsDocument = XmlUtilities.downloadAndParseXmlFile(versionIndexFileLocation, null);
-						} else if (new File(versionIndexFileLocation).exists()) {
-							versionsDocument = XmlUtilities.parseXmlFile(new File(versionIndexFileLocation));
-						}
-
-						if (versionsDocument == null) {
-							throw new Exception("Version index not found at location '" + versionIndexFileLocation + "'");
-						}
-
-						final Node startFileNameNode = XmlUtilities.getSingleXPathNode(versionsDocument, "ApplicationVersions/" + applicationName);
-						if (startFileNameNode == null) {
-							throw new Exception("error.cannotFindUpdateVersionData");
-						}
-
-						final Node versionNode = startFileNameNode.getAttributes().getNamedItem("version");
-						if (versionNode != null && Utilities.isNotBlank(versionNode.getNodeValue())) {
-							availableVersion = new Version(versionNode.getNodeValue());
-						}
-
-						if (startFileNameNode.getFirstChild() != null && Utilities.isNotBlank(startFileNameNode.getFirstChild().getNodeValue())) {
-							updateFileLocation = startFileNameNode.getFirstChild().getNodeValue();
-						}
-					}
-				} else if ("api.github.com".equalsIgnoreCase(hostname)) {
-					final URLConnection urlConnection = URI.create(versionIndexFileLocation).toURL().openConnection(proxyConfiguration == null ? Proxy.NO_PROXY : proxyConfiguration.getProxy(versionIndexFileLocation));
-					urlConnection.setRequestProperty("Pragma", "no-cache");
-					try (JsonReader jsonReader = new JsonReader(new BufferedInputStream(urlConnection.getInputStream()))) {
-						final JsonNode jsonNode = jsonReader.read();
-						if (!jsonNode.isJsonObject()) {
-							throw new Exception("Invalid github release data found at location '" + versionIndexFileLocation + "'");
-						} else {
-							final JsonObject jsonObject = (JsonObject) jsonNode;
-							final String githubApplicationNameAndVersion = (String) jsonObject.getSimpleValue("name");
-							if (!githubApplicationNameAndVersion.trim().startsWith(applicationName)) {
-								throw new Exception("Invalid github release data found for application '" + applicationName + "' was '" + githubApplicationNameAndVersion + "'");
-							}
-							availableVersion = new Version((String) jsonObject.getSimpleValue("tag_name"));
-
-							final JsonArray assets = (JsonArray) jsonObject.get("assets");
-							if (assets == null) {
-								throw new Exception("Github release for application '" + applicationName + "' has no assets");
-							}
-							String jarAssetDownloadUrl = null;
-							for (int assetIndex = 0; jarAssetDownloadUrl == null; assetIndex++) {
-								final JsonObject assetObject;
-								try {
-									assetObject = (JsonObject) assets.get(assetIndex);
-								} catch (@SuppressWarnings("unused") final IndexOutOfBoundsException indexOutOfBoundsException) {
-									// Reached the end of the assets list without finding a ".jar" asset
-									break;
-								}
-								final String assetName = (String) assetObject.getSimpleValue("name");
-								if (isApplicationJarAssetName(assetName)) {
-									jarAssetDownloadUrl = (String) assetObject.getSimpleValue("browser_download_url");
-								}
-							}
-							if (jarAssetDownloadUrl == null) {
-								throw new Exception("Github release for application '" + applicationName + "' has no '.jar' asset");
-							}
-							updateFileLocation = jarAssetDownloadUrl;
-						}
-					} catch (final Exception e) {
-						throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "':\n" + e.getMessage(), e);
-					}
+			if (!NetworkUtilities.ping(indexLocation, getProxy(proxyConfiguration, indexLocation))) {
+				if (proxyConfiguration == null) {
+					throw new Exception("error.missingInternetConnection: " + indexLocation);
 				} else {
-					final URLConnection urlConnection = URI.create(versionIndexFileLocation).toURL().openConnection(proxyConfiguration == null ? Proxy.NO_PROXY : proxyConfiguration.getProxy(versionIndexFileLocation));
-					urlConnection.setRequestProperty("Pragma", "no-cache");
-					try (JsonReader jsonReader = new JsonReader(new BufferedInputStream(urlConnection.getInputStream()))) {
-						final JsonNode jsonNode = jsonReader.read();
-						if (!jsonNode.isJsonObject()) {
-							throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "'");
-						} else {
-							final JsonObject jsonObject = (JsonObject) jsonNode;
-							final JsonObject applicationJsonObject = (JsonObject) jsonObject.get(applicationName);
-							if (applicationJsonObject == null) {
-								throw new Exception("Version index not found at location '" + versionIndexFileLocation + "'");
-							} else {
-								try {
-									availableVersion = new Version((String) applicationJsonObject.getSimpleValue("version"));
-									updateFileLocation = (String) applicationJsonObject.getSimpleValue("downloadUrl");
-								} catch (final Exception e) {
-									throw new Exception("Invalid application version entry at location '" + versionIndexFileLocation + "'", e);
-								}
-							}
-						}
-					} catch (final Exception e) {
-						throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "':\n" + e.getMessage(), e);
-					}
-				}
-			} else if (versionIndexFileLocation.toLowerCase().startsWith("file://") && versionIndexFileLocation.toLowerCase().endsWith(".json")) {
-				final URL versionIndexFileURL = URI.create(versionIndexFileLocation).toURL();
-				try (JsonReader jsonReader = new JsonReader(versionIndexFileURL.openStream())) {
-					final JsonNode jsonNode = jsonReader.read();
-					if (!jsonNode.isJsonObject()) {
-						throw new Exception("Invalid version index found at location '" + versionIndexFileLocation + "'");
-					} else {
-						final JsonObject jsonObject = (JsonObject) jsonNode;
-						final JsonObject applicationJsonObject = (JsonObject) jsonObject.get(applicationName);
-						if (applicationJsonObject == null) {
-							throw new Exception("Version index not found at location '" + versionIndexFileLocation + "'");
-						} else {
-							try {
-								availableVersion = new Version((String) applicationJsonObject.getSimpleValue("version"));
-								updateFileLocation = (String) applicationJsonObject.getSimpleValue("downloadUrl");
-							} catch (final Exception e) {
-								throw new Exception("Invalid application version entry at location '" + versionIndexFileLocation + "'", e);
-							}
-						}
-					}
+					throw new Exception("error.missingInternetConnection (using ProxyConfiguration " + proxyConfiguration.getProxyConfigurationType() + "): " + indexLocation);
 				}
 			}
 
-			if (applicationVersion.compareTo(availableVersion) < 0 && updateFileLocation != null && updateFileLocation.trim().length() > 0) {
-				updateFileLocation = replacePlaceholders(updateFileLocation);
-				return new Tuple<>(availableVersion, updateFileLocation);
+			final String hostname = NetworkUtilities.getHostnameFromRequestString(indexLocation);
+			if ("soderer.de".equalsIgnoreCase(hostname) && !indexLocationLowerCase.contains("json")) {
+				availableVersionData = readXmlVersionIndex(indexLocation, proxyConfiguration, applicationName);
+			} else if ("api.github.com".equalsIgnoreCase(hostname)) {
+				availableVersionData = readGithubRelease(indexLocation, proxyConfiguration, applicationName);
 			} else {
-				updateFileLocation = null;
-				return null;
+				// JSON index (soderer.de or any other server)
+				try (InputStream inputStream = new BufferedInputStream(openConnection(indexLocation, proxyConfiguration).getInputStream())) {
+					availableVersionData = readJsonVersionIndex(inputStream, indexLocation, applicationName);
+				}
+			}
+		} else if (indexLocationLowerCase.startsWith("file://") && indexLocationLowerCase.endsWith(".json")) {
+			try (InputStream inputStream = new BufferedInputStream(URI.create(indexLocation).toURL().openStream())) {
+				availableVersionData = readJsonVersionIndex(inputStream, indexLocation, applicationName);
+			}
+		} else {
+			throw new Exception("Unsupported version index location '" + indexLocation + "' (supported: http(s) URLs and \"file://\" JSON files)");
+		}
+
+		final Version availableVersion = availableVersionData.getFirst();
+		final String updateFileLocation = availableVersionData.getSecond();
+		if (availableVersion == null) {
+			throw new Exception("No version found for application '" + applicationName + "' in version index '" + indexLocation + "'");
+		}
+
+		if (applicationVersion.compareTo(availableVersion) < 0 && updateFileLocation != null && updateFileLocation.trim().length() > 0) {
+			return new Tuple<>(availableVersion, replacePlaceholders(updateFileLocation.trim()));
+		} else {
+			return null;
+		}
+	}
+
+	private static Proxy getProxy(final ProxyConfiguration proxyConfiguration, final String location) throws Exception {
+		return proxyConfiguration == null ? Proxy.NO_PROXY : proxyConfiguration.getProxy(location);
+	}
+
+	/**
+	 * Opens an http connection with timeouts, so an unresponsive server cannot block the application forever.
+	 */
+	private static URLConnection openConnection(final String location, final ProxyConfiguration proxyConfiguration) throws Exception {
+		final URLConnection urlConnection = URI.create(location).toURL().openConnection(getProxy(proxyConfiguration, location));
+		urlConnection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
+		urlConnection.setReadTimeout(READ_TIMEOUT_MILLIS);
+		urlConnection.setRequestProperty("Pragma", "no-cache");
+		urlConnection.setRequestProperty("Cache-Control", "no-cache");
+		return urlConnection;
+	}
+
+	/**
+	 * Reads the JSON version index format: { "ApplicationName": { "version": "1.2.3", "downloadUrl": "..." }, ... }
+	 */
+	private static Tuple<Version, String> readJsonVersionIndex(final InputStream inputStream, final String indexLocation, final String applicationName) throws Exception {
+		try (JsonReader jsonReader = new JsonReader(inputStream)) {
+			final JsonNode jsonNode = jsonReader.read();
+			if (jsonNode == null || !jsonNode.isJsonObject()) {
+				throw new Exception("Invalid version index found at location '" + indexLocation + "'");
+			}
+
+			final JsonObject jsonObject = (JsonObject) jsonNode;
+			final Object applicationEntry = jsonObject.get(applicationName);
+			if (!(applicationEntry instanceof JsonObject)) {
+				throw new Exception("Version index entry for application '" + applicationName + "' not found at location '" + indexLocation + "'");
+			}
+
+			final JsonObject applicationJsonObject = (JsonObject) applicationEntry;
+			final Object versionValue = applicationJsonObject.getSimpleValue("version");
+			final Object downloadUrlValue = applicationJsonObject.getSimpleValue("downloadUrl");
+			try {
+				return new Tuple<>(versionValue == null ? null : new Version(versionValue.toString()), downloadUrlValue == null ? null : downloadUrlValue.toString());
+			} catch (final Exception e) {
+				throw new Exception("Invalid application version entry at location '" + indexLocation + "'", e);
 			}
 		} catch (final Exception e) {
-			throw e;
+			throw new Exception("Invalid version index found at location '" + indexLocation + "':\n" + e.getMessage(), e);
+		}
+	}
+
+	/**
+	 * Reads the XML version index format of soderer.de: &lt;ApplicationVersions&gt;&lt;ApplicationName version="1.2.3"&gt;downloadUrl&lt;/ApplicationName&gt;...
+	 */
+	private static Tuple<Version, String> readXmlVersionIndex(final String indexLocation, final ProxyConfiguration proxyConfiguration, final String applicationName) throws Exception {
+		final Document versionsDocument;
+		try (InputStream inputStream = new BufferedInputStream(openConnection(indexLocation, proxyConfiguration).getInputStream())) {
+			// Downloaded via the configured proxy and parsed without DTDs and external entities (XXE)
+			final DocumentBuilderFactory documentBuilderFactory = DocumentBuilderFactory.newInstance();
+			documentBuilderFactory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
+			documentBuilderFactory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+			documentBuilderFactory.setXIncludeAware(false);
+			documentBuilderFactory.setExpandEntityReferences(false);
+			versionsDocument = documentBuilderFactory.newDocumentBuilder().parse(inputStream);
+		} catch (final Exception e) {
+			throw new Exception("Invalid version index found at location '" + indexLocation + "':\n" + e.getMessage(), e);
+		}
+
+		final Node startFileNameNode = XmlUtilities.getSingleXPathNode(versionsDocument, "ApplicationVersions/" + applicationName);
+		if (startFileNameNode == null) {
+			throw new Exception("error.cannotFindUpdateVersionData");
+		}
+
+		Version availableVersion = null;
+		final Node versionNode = startFileNameNode.getAttributes().getNamedItem("version");
+		if (versionNode != null && Utilities.isNotBlank(versionNode.getNodeValue())) {
+			availableVersion = new Version(versionNode.getNodeValue());
+		}
+
+		String updateFileLocation = null;
+		if (startFileNameNode.getFirstChild() != null && Utilities.isNotBlank(startFileNameNode.getFirstChild().getNodeValue())) {
+			updateFileLocation = startFileNameNode.getFirstChild().getNodeValue();
+		}
+
+		return new Tuple<>(availableVersion, updateFileLocation);
+	}
+
+	/**
+	 * Reads the "latest release" data of the GitHub API.
+	 */
+	private static Tuple<Version, String> readGithubRelease(final String indexLocation, final ProxyConfiguration proxyConfiguration, final String applicationName) throws Exception {
+		try (JsonReader jsonReader = new JsonReader(new BufferedInputStream(openConnection(indexLocation, proxyConfiguration).getInputStream()))) {
+			final JsonNode jsonNode = jsonReader.read();
+			if (jsonNode == null || !jsonNode.isJsonObject()) {
+				throw new Exception("Invalid github release data found at location '" + indexLocation + "'");
+			}
+
+			final JsonObject jsonObject = (JsonObject) jsonNode;
+			final Object releaseName = jsonObject.getSimpleValue("name");
+			// The release name is optional on GitHub, it is only checked if it is set
+			if (releaseName != null && Utilities.isNotBlank(releaseName.toString()) && !releaseName.toString().trim().startsWith(applicationName)) {
+				throw new Exception("Invalid github release data found for application '" + applicationName + "' was '" + releaseName + "'");
+			}
+
+			final Object tagName = jsonObject.getSimpleValue("tag_name");
+			if (tagName == null || Utilities.isBlank(tagName.toString())) {
+				throw new Exception("Github release for application '" + applicationName + "' has no tag name");
+			}
+			final Version availableVersion = new Version(tagName.toString());
+
+			final JsonArray assets = (JsonArray) jsonObject.get("assets");
+			if (assets == null) {
+				throw new Exception("Github release for application '" + applicationName + "' has no assets");
+			}
+			String jarAssetDownloadUrl = null;
+			for (int assetIndex = 0; jarAssetDownloadUrl == null; assetIndex++) {
+				final JsonObject assetObject;
+				try {
+					assetObject = (JsonObject) assets.get(assetIndex);
+				} catch (@SuppressWarnings("unused") final IndexOutOfBoundsException indexOutOfBoundsException) {
+					// Reached the end of the assets list without finding a ".jar" asset
+					break;
+				}
+				final Object assetName = assetObject.getSimpleValue("name");
+				if (assetName != null && isApplicationJarAssetName(assetName.toString())) {
+					final Object downloadUrl = assetObject.getSimpleValue("browser_download_url");
+					jarAssetDownloadUrl = downloadUrl == null ? null : downloadUrl.toString();
+				}
+			}
+			if (jarAssetDownloadUrl == null) {
+				throw new Exception("Github release for application '" + applicationName + "' has no '.jar' asset");
+			}
+
+			return new Tuple<>(availableVersion, jarAssetDownloadUrl);
+		} catch (final Exception e) {
+			throw new Exception("Invalid version index found at location '" + indexLocation + "':\n" + e.getMessage(), e);
 		}
 	}
 
@@ -348,33 +397,22 @@ public class ApplicationUpdateUtilities {
 	 */
 	public static void restart(final String jarFilePath, final List<String> jvmParameters, final List<String> appParameters) {
 		try {
-			final File restarterFile = new File(System.getProperty("java.io.tmpdir"), "Restarter_" + new File(jarFilePath).getName() +".jar");
+			final Path restarterFile;
 			try (InputStream restarterInputStream = ApplicationUpdateUtilities.class.getClassLoader().getResourceAsStream("Restarter.jar")) {
 				if (restarterInputStream == null) {
 					throw new Exception("Restarter binary not available");
 				}
 
-				if (restarterFile.exists() && !restarterFile.delete()) {
-					throw new Exception("Cannot remove leftover restarter file '" + restarterFile.getAbsolutePath() + "', it may still be in use");
-				}
-				try (FileOutputStream restarterOut = new FileOutputStream(restarterFile)) {
-					IoUtilities.copy(restarterInputStream, restarterOut);
-				}
-			}
-
-			String javaBinPath = SystemUtilities.getJavaBinPath();
-			if (Utilities.isBlank(javaBinPath)) {
-				if (SystemUtilities.isWindowsSystem()) {
-					javaBinPath = "java.exe";
-				} else {
-					javaBinPath = "java";
-				}
+				// Random file name, created exclusively and (on POSIX systems) only accessible by the current user:
+				// a fixed name in the shared temp directory could be prepared or replaced by other local users
+				restarterFile = Files.createTempFile(RESTARTER_FILE_PREFIX + new File(jarFilePath).getName() + "_", ".jar");
+				Files.copy(restarterInputStream, restarterFile, StandardCopyOption.REPLACE_EXISTING);
 			}
 
 			final List<String> restarterCommandList = new ArrayList<>();
-			restarterCommandList.add(javaBinPath);
+			restarterCommandList.add(getJavaBinPath());
 			restarterCommandList.add("-jar");
-			restarterCommandList.add(restarterFile.getAbsolutePath());
+			restarterCommandList.add(restarterFile.toAbsolutePath().toString());
 
 			if (DEBUGGING_RESTARTER) {
 				restarterCommandList.add("-log");
@@ -382,27 +420,9 @@ public class ApplicationUpdateUtilities {
 
 			restarterCommandList.add(jarFilePath);
 
-			if (jvmParameters != null && jvmParameters.size() > 0) {
-				restarterCommandList.add("-jvmParameter");
-				for (final String token : jvmParameters) {
-					restarterCommandList.add(token);
-				}
-			}
+			addParameters(restarterCommandList, jvmParameters, appParameters);
 
-			if (appParameters != null && appParameters.size() > 0) {
-				restarterCommandList.add("-appParameter");
-				for (final String token : appParameters) {
-					restarterCommandList.add(token);
-				}
-			}
-
-			final String[] restarterCommand = restarterCommandList.toArray(new String[0]);
-
-			final ProcessBuilder restarterProcessBuilder = new ProcessBuilder(restarterCommand);
-			restarterProcessBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-			restarterProcessBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
-
-			restarterProcessBuilder.start();
+			startDetached(restarterCommandList.toArray(new String[0]));
 
 			Runtime.getRuntime().exit(0);
 		} catch (final Exception e) {
@@ -412,143 +432,48 @@ public class ApplicationUpdateUtilities {
 		}
 	}
 
+	private static String getJavaBinPath() {
+		final String javaBinPath = SystemUtilities.getJavaBinPath();
+		if (Utilities.isNotBlank(javaBinPath)) {
+			return javaBinPath;
+		} else if (SystemUtilities.isWindowsSystem()) {
+			return "java.exe";
+		} else {
+			return "java";
+		}
+	}
+
+	private static void addParameters(final List<String> commandParts, final List<String> jvmParameters, final List<String> appParameters) {
+		if (jvmParameters != null && jvmParameters.size() > 0) {
+			commandParts.add("-jvmParameter");
+			commandParts.addAll(jvmParameters);
+		}
+
+		if (appParameters != null && appParameters.size() > 0) {
+			commandParts.add("-appParameter");
+			commandParts.addAll(appParameters);
+		}
+	}
+
+	/**
+	 * Starts a process that keeps running after this JVM exits. Its output is discarded by the operating system,
+	 * so it can never block on a full or closed pipe.
+	 */
+	private static void startDetached(final String[] command) throws Exception {
+		final ProcessBuilder processBuilder = new ProcessBuilder(command);
+		processBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+		processBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
+		processBuilder.start();
+	}
+
 	private static boolean updateApplication(final ApplicationUpdateParent updateParent, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final String trustedCaCertificateFileNames, final String username, final char[] password, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate, final boolean allowUnsafeUpdates) {
 		try {
-			if (Utilities.isBlank(updateFileLocation)) {
-				throw new Exception("Mandatory updateFileLocation is empty");
-			}
-
-			String jarFilePath = SystemUtilities.getCurrentlyRunningJarFilePath();
-
-			if (jarFilePath == null) {
-				try {
-					final String currentJarUrlPath = updateParent.getClass().getResource(updateParent.getClass().getSimpleName() + ".class").toString();
-					// The class resource URL is percent-encoded (e.g. "%20" for spaces in the path),
-					// so it must be decoded via URI/File instead of just stripping "jar:file:" as plain text
-					final String jarFileUriPart = currentJarUrlPath.substring("jar:".length(), currentJarUrlPath.lastIndexOf("!"));
-					jarFilePath = new File(URI.create(jarFileUriPart)).getAbsolutePath();
-				} catch (@SuppressWarnings("unused") final Exception e) {
-					jarFilePath = null;
-				}
-			}
-
-			jarFilePath = Utilities.replaceUsersHome(jarFilePath);
-
-			if (jarFilePath == null || !new File(jarFilePath).exists()) {
-				throw new Exception("Current running jar file was not found");
-			}
-
-			final File downloadTempFile = new File(new File(jarFilePath).getParent() + File.separator + "temp_" + new File(jarFilePath).getName());
-
-			final boolean downloadSuccess = getNewApplicationVersionFile(updateParent, username, password, updateFileLocation, proxyConfiguration, downloadTempFile);
-			if (downloadSuccess) {
-				if (Utilities.isNotEmpty(trustedCaCertificateFileNames)) {
-					final ClassLoader applicationClassLoader = updateParent.getClass().getClassLoader();
-					if (applicationClassLoader == null) {
-						showUpdateError(updateParent, "Update error:\nApplications classloader is not readable");
-						return false;
-					}
-
-					final Collection<Certificate> trustedCertificates = new ArrayList<>();
-					for (final String trustedCaCertificateFileName : Utilities.splitAndTrimList(trustedCaCertificateFileNames)) {
-						try (InputStream trustedUpdateCertificatesStream = applicationClassLoader.getResourceAsStream(trustedCaCertificateFileName)) {
-							if (trustedUpdateCertificatesStream != null) {
-								for (final Certificate trustedCaCertificate : CertificateFactory.getInstance("X.509").generateCertificates(new BufferedInputStream(trustedUpdateCertificatesStream))) {
-									trustedCertificates.add(trustedCaCertificate);
-								}
-							}
-						} catch (final Exception e) {
-							showUpdateError(updateParent, "Update error:\nTrusted CA certificate '" + trustedCaCertificateFileName + "' is not readable: " + e.getMessage());
-							return false;
-						}
-					}
-
-					if (trustedCertificates.size() == 0) {
-						showUpdateError(updateParent, "Update error:\nTrusted CA certificate is missing");
-						return false;
-					} else if (!verifyJarSignature(downloadTempFile, trustedCertificates)) {
-						showUpdateError(updateParent, "Update error:\nSignature of updatefile is invalid");
-						return false;
-					}
-				} else if (!allowUnsafeUpdates) {
-					showUpdateError(updateParent, "Update error:\nTrusted CA certificate file name is missing");
-					return false;
-				}
-
-				final String[] updaterCommand;
-				if (updateParent != null) {
-					try (final InputStream updaterInputStream = ApplicationUpdateUtilities.class.getClassLoader().getResourceAsStream("Updater.jar")) {
-						if (updaterInputStream != null) {
-							final File updaterFile = new File(new File(jarFilePath).getParent(), "Updater_" + new File(jarFilePath).getName() + ".jar");
-							if (updaterFile.exists() && !updaterFile.delete()) {
-								throw new Exception("Cannot remove leftover updater file '" + updaterFile.getAbsolutePath() + "' from a previous update, it may still be in use");
-							}
-							try (FileOutputStream updaterOut = new FileOutputStream(updaterFile)) {
-								IoUtilities.copy(updaterInputStream, updaterOut);
-							}
-
-							String javaBinPath = SystemUtilities.getJavaBinPath();
-							if (Utilities.isBlank(javaBinPath)) {
-								if (SystemUtilities.isWindowsSystem()) {
-									javaBinPath = "java.exe";
-								} else {
-									javaBinPath = "java";
-								}
-							}
-
-							final List<String> commandParts = new ArrayList<>(List.of(javaBinPath, "-jar", updaterFile.getAbsolutePath()));
-							if (DEBUGGING_UPDATER) {
-								commandParts.add("-log");
-								commandParts.add("-stepwait");
-							}
-							commandParts.add(jarFilePath);
-							commandParts.add(downloadTempFile.getAbsolutePath());
-							if (!restartAfterUpdate) {
-								commandParts.add("-norestart");
-							}
-
-							if (jvmParameters != null && jvmParameters.size() > 0) {
-								commandParts.add("-jvmParameter");
-								for (final String token : jvmParameters) {
-									commandParts.add(token);
-								}
-							}
-
-							if (appParameters != null && appParameters.size() > 0) {
-								commandParts.add("-appParameter");
-								for (final String token : appParameters) {
-									commandParts.add(token);
-								}
-							}
-
-							updaterCommand = commandParts.toArray(new String[0]);
-						} else {
-							updaterCommand = createUpdateBatchFile(jarFilePath, downloadTempFile, restartAfterUpdate, null);
-						}
-					}
-				} else {
-					updaterCommand = createUpdateBatchFile(jarFilePath, downloadTempFile, restartAfterUpdate, null);
-				}
-
-				if (updateParent != null) {
-					updateParent.showUpdateDone(null, null, 0, null);
-				}
-
-				if (updaterCommand != null) {
-					final ProcessBuilder restarterProcessBuilder = new ProcessBuilder(updaterCommand);
-					restarterProcessBuilder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-					restarterProcessBuilder.redirectError(ProcessBuilder.Redirect.DISCARD);
-					restarterProcessBuilder.start();
-
-					Runtime.getRuntime().exit(0);
-				}
-
-				return true;
-			} else {
-				return false;
-			}
+			return installUpdate(updateParent, updateParent == null ? null : updateParent.getClass(), updateFileLocation, proxyConfiguration, trustedCaCertificateFileNames, username, password, jvmParameters, appParameters, restartAfterUpdate, allowUnsafeUpdates);
 		} catch (final Exception e) {
-			System.err.println("Update error while updating to new version:\n" + e.getMessage());
+			if (updateParent != null) {
+				// Without updateParent showUpdateError() itself writes to System.err, the message must not appear twice
+				System.err.println("Update error while updating to new version:\n" + e.getMessage());
+			}
 			e.printStackTrace();
 
 			showUpdateError(updateParent, "Update error while updating to new version:\n" + e.getMessage());
@@ -569,136 +494,181 @@ public class ApplicationUpdateUtilities {
 	 * @param jvmParameters JVM parameters for restarting the application, may be null
 	 * @param appParameters application parameters for restarting the application, may be null
 	 * @param restartAfterUpdate true to restart the application after the update
-	 * @return true if the update was prepared (the method only returns if no updater could be started), false if the download failed
+	 * @return only returns false if the download was canceled, on success the application exits
 	 * @throws Exception if the download, the signature check or starting the updater failed
 	 */
 	public static boolean updateNonInteractiveApplication(final Class<? extends ApplicationUpdateParent> applicationClass, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final String trustedCaCertificateFileNames, final String username, final char[] password, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate) throws Exception {
 		try {
-			if (Utilities.isBlank(updateFileLocation)) {
-				throw new Exception("Mandatory updateFileLocation is empty");
-			}
-
-			String jarFilePath = SystemUtilities.getCurrentlyRunningJarFilePath();
-
-			if (jarFilePath == null) {
-				try {
-					final String currentJarUrlPath = applicationClass.getResource(applicationClass.getSimpleName() + ".class").toString();
-					// The class resource URL is percent-encoded (e.g. "%20" for spaces in the path),
-					// so it must be decoded via URI/File instead of just stripping "jar:file:" as plain text
-					final String jarFileUriPart = currentJarUrlPath.substring("jar:".length(), currentJarUrlPath.lastIndexOf("!"));
-					jarFilePath = new File(URI.create(jarFileUriPart)).getAbsolutePath();
-				} catch (@SuppressWarnings("unused") final Exception e) {
-					jarFilePath = null;
-				}
-			}
-
-			jarFilePath = Utilities.replaceUsersHome(jarFilePath);
-
-			if (jarFilePath == null || !new File(jarFilePath).exists()) {
-				throw new Exception("Current running jar file was not found");
-			}
-
-			final File downloadTempFile = new File(new File(jarFilePath).getParent() + File.separator + "temp_" + new File(jarFilePath).getName());
-
-			final boolean downloadSuccess = getNewNonInteractiveApplicationVersionFile(username, password, updateFileLocation, proxyConfiguration, downloadTempFile);
-			if (downloadSuccess) {
-				if (Utilities.isNotEmpty(trustedCaCertificateFileNames)) {
-					final ClassLoader applicationClassLoader = applicationClass.getClassLoader();
-					if (applicationClassLoader == null) {
-						throw new Exception("Update error:\nApplications classloader is not readable");
-					}
-
-					final Collection<Certificate> trustedCertificates = new ArrayList<>();
-					for (final String trustedCaCertificateFileName : Utilities.splitAndTrimList(trustedCaCertificateFileNames)) {
-						try (InputStream trustedUpdateCertificatesStream = applicationClassLoader.getResourceAsStream(trustedCaCertificateFileName)) {
-							if (trustedUpdateCertificatesStream != null) {
-								for (final Certificate trustedCaCertificate : CertificateFactory.getInstance("X.509").generateCertificates(new BufferedInputStream(trustedUpdateCertificatesStream))) {
-									trustedCertificates.add(trustedCaCertificate);
-								}
-							}
-						} catch (final Exception e) {
-							throw new Exception("Update error:\nTrusted CA certificate '" + trustedCaCertificateFileName + "' is not readable: " + e.getMessage());
-						}
-					}
-
-					if (trustedCertificates.size() == 0) {
-						throw new Exception("Update error:\nTrusted CA certificate is missing");
-					} else if (!verifyJarSignature(downloadTempFile, trustedCertificates)) {
-						throw new Exception("Update error:\nSignature of updatefile is invalid");
-					}
-				} else {
-					throw new Exception("Update error:\nTrusted CA certificate file name is missing");
-				}
-
-				final String[] updaterCommand;
-				File updaterFile = null;
-				try (InputStream updaterInputStream = ApplicationUpdateUtilities.class.getClassLoader().getResourceAsStream("Updater.jar")) {
-					if (updaterInputStream != null) {
-						updaterFile = new File(new File(jarFilePath).getParent(), "Updater_" + new File(jarFilePath).getName() +".jar");
-						if (updaterFile.exists() && !updaterFile.delete()) {
-							throw new Exception("Cannot remove leftover updater file '" + updaterFile.getAbsolutePath() + "' from a previous update, it may still be in use");
-						}
-						try (FileOutputStream updaterOut = new FileOutputStream(updaterFile)) {
-							IoUtilities.copy(updaterInputStream, updaterOut);
-						}
-					}
-				}
-				if (updaterFile != null) {
-					String javaBinPath = SystemUtilities.getJavaBinPath();
-					if (Utilities.isBlank(javaBinPath)) {
-						if (SystemUtilities.isWindowsSystem()) {
-							javaBinPath = "java.exe";
-						} else {
-							javaBinPath = "java";
-						}
-					}
-
-					final List<String> commandParts = new ArrayList<>(List.of(javaBinPath, "-jar", updaterFile.getAbsolutePath()));
-					if (DEBUGGING_UPDATER) {
-						commandParts.add("-log");
-						commandParts.add("-stepwait");
-					}
-					commandParts.add(jarFilePath);
-					commandParts.add(downloadTempFile.getAbsolutePath());
-					if (!restartAfterUpdate) {
-						commandParts.add("-norestart");
-					}
-
-					if (jvmParameters != null && jvmParameters.size() > 0) {
-						commandParts.add("-jvmParameter");
-						for (final String token : jvmParameters) {
-							commandParts.add(token);
-						}
-					}
-
-					if (appParameters != null && appParameters.size() > 0) {
-						commandParts.add("-appParameter");
-						for (final String token : appParameters) {
-							commandParts.add(token);
-						}
-					}
-
-					updaterCommand = commandParts.toArray(new String[0]);
-				} else {
-					updaterCommand = createUpdateBatchFile(jarFilePath, downloadTempFile, restartAfterUpdate, null);
-				}
-
-				if (updaterCommand != null) {
-					Runtime.getRuntime().exec(updaterCommand, null, null);
-					Runtime.getRuntime().exit(0);
-				}
-
-				return true;
-			} else {
-				return false;
-			}
+			return installUpdate(null, applicationClass, updateFileLocation, proxyConfiguration, trustedCaCertificateFileNames, username, password, jvmParameters, appParameters, restartAfterUpdate, false);
 		} catch (final Exception e) {
 			throw new Exception("Update error while updating to new version:\n" + e.getMessage(), e);
 		}
 	}
 
+	/**
+	 * Downloads, verifies and installs an update. On success the application exits.
+	 *
+	 * @param updateParent interactive callbacks, null for a non-interactive update
+	 * @param applicationClass class of the application, used to find the running jar and the CA certificate resources, may be null
+	 * @return false if the download was canceled or failed with an error already shown to the user
+	 */
+	private static boolean installUpdate(final ApplicationUpdateParent updateParent, final Class<?> applicationClass, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final String trustedCaCertificateFileNames, final String username, final char[] password, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate, final boolean allowUnsafeUpdates) throws Exception {
+		if (Utilities.isBlank(updateFileLocation)) {
+			throw new Exception("Mandatory updateFileLocation is empty");
+		}
+
+		// Checked before the download, so no unsafe file is downloaded at all
+		checkUpdateSourceIsAllowed(updateFileLocation, trustedCaCertificateFileNames, allowUnsafeUpdates);
+
+		final String jarFilePath = findRunningJarFilePath(applicationClass);
+		final File downloadTempFile = new File(new File(jarFilePath).getParentFile(), DOWNLOAD_TEMP_FILE_PREFIX + new File(jarFilePath).getName());
+
+		boolean handedOverToUpdater = false;
+		try {
+			final boolean downloadSuccess;
+			if (updateParent != null) {
+				downloadSuccess = getNewApplicationVersionFile(updateParent, username, password, updateFileLocation, proxyConfiguration, downloadTempFile);
+			} else {
+				downloadSuccess = getNewNonInteractiveApplicationVersionFile(username, password, updateFileLocation, proxyConfiguration, downloadTempFile);
+			}
+			if (!downloadSuccess) {
+				return false;
+			}
+
+			verifyUpdateFile(downloadTempFile, trustedCaCertificateFileNames, getApplicationClassLoader(applicationClass));
+
+			final String[] updaterCommand = createUpdaterCommand(jarFilePath, downloadTempFile, jvmParameters, appParameters, restartAfterUpdate);
+
+			if (updateParent != null) {
+				updateParent.showUpdateDone(null, null, 0, null);
+			}
+
+			startDetached(updaterCommand);
+			handedOverToUpdater = true;
+		} finally {
+			if (!handedOverToUpdater) {
+				// A canceled, failed or untrusted download must not stay next to the application jar
+				deleteQuietly(downloadTempFile);
+			}
+		}
+
+		Runtime.getRuntime().exit(0);
+		return true;
+	}
+
+	/**
+	 * Unsigned updates are only allowed if explicitly requested, and never via unencrypted http, where any
+	 * man-in-the-middle could inject code.
+	 */
+	private static void checkUpdateSourceIsAllowed(final String updateFileLocation, final String trustedCaCertificateFileNames, final boolean allowUnsafeUpdates) throws Exception {
+		if (Utilities.isNotEmpty(trustedCaCertificateFileNames)) {
+			return;
+		} else if (!allowUnsafeUpdates) {
+			throw new Exception("Trusted CA certificate file name is missing");
+		} else if (updateFileLocation.trim().toLowerCase(Locale.ROOT).startsWith("http://")) {
+			throw new Exception("Updates without signature check are only allowed via https or from local files");
+		}
+	}
+
+	private static ClassLoader getApplicationClassLoader(final Class<?> applicationClass) {
+		ClassLoader classLoader = applicationClass == null ? null : applicationClass.getClassLoader();
+		if (classLoader == null) {
+			classLoader = Thread.currentThread().getContextClassLoader();
+		}
+		if (classLoader == null) {
+			classLoader = ApplicationUpdateUtilities.class.getClassLoader();
+		}
+		return classLoader;
+	}
+
+	private static String findRunningJarFilePath(final Class<?> applicationClass) throws Exception {
+		String jarFilePath = SystemUtilities.getCurrentlyRunningJarFilePath();
+
+		if (jarFilePath == null && applicationClass != null) {
+			try {
+				final String currentJarUrlPath = applicationClass.getResource(applicationClass.getSimpleName() + ".class").toString();
+				// The class resource URL is percent-encoded (e.g. "%20" for spaces in the path),
+				// so it must be decoded via URI/File instead of just stripping "jar:file:" as plain text
+				final String jarFileUriPart = currentJarUrlPath.substring("jar:".length(), currentJarUrlPath.lastIndexOf("!"));
+				jarFilePath = new File(URI.create(jarFileUriPart)).getAbsolutePath();
+			} catch (@SuppressWarnings("unused") final Exception e) {
+				jarFilePath = null;
+			}
+		}
+
+		jarFilePath = Utilities.replaceUsersHome(jarFilePath);
+
+		if (jarFilePath == null || !new File(jarFilePath).exists()) {
+			throw new Exception("Current running jar file was not found");
+		}
+		return jarFilePath;
+	}
+
+	/**
+	 * Checks the jar signature of the update file, if trusted CA certificates are given.
+	 */
+	private static void verifyUpdateFile(final File updateFile, final String trustedCaCertificateFileNames, final ClassLoader applicationClassLoader) throws Exception {
+		if (Utilities.isEmpty(trustedCaCertificateFileNames)) {
+			// Unsafe updates were explicitly allowed, see checkUpdateSourceIsAllowed()
+			return;
+		}
+
+		final Collection<Certificate> trustedCertificates = new ArrayList<>();
+		for (final String trustedCaCertificateFileName : Utilities.splitAndTrimList(trustedCaCertificateFileNames)) {
+			try (InputStream trustedUpdateCertificatesStream = applicationClassLoader.getResourceAsStream(trustedCaCertificateFileName)) {
+				if (trustedUpdateCertificatesStream != null) {
+					for (final Certificate trustedCaCertificate : CertificateFactory.getInstance("X.509").generateCertificates(new BufferedInputStream(trustedUpdateCertificatesStream))) {
+						trustedCertificates.add(trustedCaCertificate);
+					}
+				}
+			} catch (final Exception e) {
+				throw new Exception("Trusted CA certificate '" + trustedCaCertificateFileName + "' is not readable: " + e.getMessage(), e);
+			}
+		}
+
+		if (trustedCertificates.size() == 0) {
+			throw new Exception("Trusted CA certificate is missing");
+		} else if (!verifyJarSignature(updateFile, trustedCertificates)) {
+			throw new Exception("Signature of updatefile is invalid");
+		}
+	}
+
+	/**
+	 * Extracts the embedded "Updater.jar" next to the application jar and returns the command to start it, or
+	 * creates a batch file / shell script as fallback, if the updater binary is not available.
+	 */
+	private static String[] createUpdaterCommand(final String jarFilePath, final File downloadTempFile, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate) throws Exception {
+		try (InputStream updaterInputStream = ApplicationUpdateUtilities.class.getClassLoader().getResourceAsStream("Updater.jar")) {
+			if (updaterInputStream == null) {
+				return createUpdateBatchFile(jarFilePath, downloadTempFile, restartAfterUpdate, jvmParameters, appParameters);
+			}
+
+			final File updaterFile = new File(new File(jarFilePath).getParentFile(), UPDATER_FILE_PREFIX + new File(jarFilePath).getName() + ".jar");
+			if (updaterFile.exists() && !updaterFile.delete()) {
+				throw new Exception("Cannot remove leftover updater file '" + updaterFile.getAbsolutePath() + "' from a previous update, it may still be in use");
+			}
+			Files.copy(updaterInputStream, updaterFile.toPath());
+
+			final List<String> commandParts = new ArrayList<>(List.of(getJavaBinPath(), "-jar", updaterFile.getAbsolutePath()));
+			if (DEBUGGING_UPDATER) {
+				commandParts.add("-log");
+				commandParts.add("-stepwait");
+			}
+			commandParts.add(jarFilePath);
+			commandParts.add(downloadTempFile.getAbsolutePath());
+			if (!restartAfterUpdate) {
+				commandParts.add("-norestart");
+			}
+
+			addParameters(commandParts, jvmParameters, appParameters);
+
+			return commandParts.toArray(new String[0]);
+		}
+	}
+
 	private static boolean getNewApplicationVersionFile(final ApplicationUpdateParent updateParent, final String username, final char[] password, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final File downloadTempFile) throws Exception {
-		if (updateFileLocation.toLowerCase().startsWith("http://") || updateFileLocation.toLowerCase().startsWith("https://")) {
+		final String updateFileLocationLowerCase = updateFileLocation.toLowerCase(Locale.ROOT);
+		if (updateFileLocationLowerCase.startsWith("http://") || updateFileLocationLowerCase.startsWith("https://")) {
 			// Download file
 			boolean retryDownload = true;
 			boolean firstRequest = true;
@@ -716,131 +686,79 @@ public class ApplicationUpdateUtilities {
 				}
 
 				if (downloadUrlWithCredentials.contains("<username>") && downloadUrlWithCredentials.contains("<password>")) {
-					if (updateParent != null) {
-						final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadCredentials"), true, true, firstRequest);
-						if (credentials == null) {
-							updateParent.showUpdateError(LangResources.get("canceledByUser"));
-							return false;
-						} else if (Utilities.isEmpty(credentials.getUsername()) || Utilities.isEmpty(credentials.getPassword())) {
-							updateParent.showUpdateError(LangResources.get("usernameAndPasswordRequired"));
-							return false;
-						} else {
-							downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<username>", HttpUtilities.urlEncode(credentials.getUsername(), StandardCharsets.UTF_8));
-							downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<password>", HttpUtilities.urlEncode(new String(credentials.getPassword()), StandardCharsets.UTF_8));
-						}
-					} else {
-						showUpdateError(updateParent, LangResources.get("usernameAndPasswordRequired"));
+					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadCredentials"), true, true, firstRequest);
+					if (credentials == null) {
+						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
+					} else if (Utilities.isEmpty(credentials.getUsername()) || Utilities.isEmpty(credentials.getPassword())) {
+						updateParent.showUpdateError(LangResources.get("usernameAndPasswordRequired"));
+						return false;
+					} else {
+						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<username>", HttpUtilities.urlEncode(credentials.getUsername(), StandardCharsets.UTF_8));
+						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<password>", HttpUtilities.urlEncode(new String(credentials.getPassword()), StandardCharsets.UTF_8));
 					}
 				} else if (downloadUrlWithCredentials.contains("<username>")) {
-					if (updateParent != null) {
-						final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadUsername"), true, false, firstRequest);
-						if (credentials == null) {
-							updateParent.showUpdateError(LangResources.get("canceledByUser"));
-							return false;
-						} else if (Utilities.isEmpty(credentials.getUsername())) {
-							updateParent.showUpdateError(LangResources.get("usernameRequired"));
-							return false;
-						} else {
-							downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<username>", HttpUtilities.urlEncode(credentials.getUsername(), StandardCharsets.UTF_8));
-						}
-					} else {
-						showUpdateError(updateParent, LangResources.get("usernameRequired"));
+					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadUsername"), true, false, firstRequest);
+					if (credentials == null) {
+						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
+					} else if (Utilities.isEmpty(credentials.getUsername())) {
+						updateParent.showUpdateError(LangResources.get("usernameRequired"));
+						return false;
+					} else {
+						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<username>", HttpUtilities.urlEncode(credentials.getUsername(), StandardCharsets.UTF_8));
 					}
 				} else if (downloadUrlWithCredentials.contains("<password>")) {
-					if (updateParent != null) {
-						final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadPassword"), false, true, firstRequest);
-						if (credentials == null) {
-							updateParent.showUpdateError(LangResources.get("canceledByUser"));
-							return false;
-						} else if (Utilities.isEmpty(credentials.getPassword())) {
-							updateParent.showUpdateError(LangResources.get("passwordRequired"));
-							return false;
-						} else {
-							downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<password>", HttpUtilities.urlEncode(new String(credentials.getPassword()), StandardCharsets.UTF_8));
-						}
-					} else {
-						showUpdateError(updateParent, LangResources.get("passwordRequired"));
+					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadPassword"), false, true, firstRequest);
+					if (credentials == null) {
+						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
+					} else if (Utilities.isEmpty(credentials.getPassword())) {
+						updateParent.showUpdateError(LangResources.get("passwordRequired"));
+						return false;
+					} else {
+						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<password>", HttpUtilities.urlEncode(new String(credentials.getPassword()), StandardCharsets.UTF_8));
 					}
 				}
 
 				retryDownload = false;
 				try {
-					if (downloadTempFile.exists()) {
-						downloadTempFile.delete();
-					}
+					deleteQuietly(downloadTempFile);
 					final boolean success = downloadUpdateFile(updateParent, downloadTempFile, downloadUrlWithCredentials, proxyConfiguration);
 					if (!success) {
 						// download stopped by user
-						showUpdateError(updateParent, LangResources.get("canceledByUser"));
-						return false;
-					}
-				} catch (final UserError e) {
-					if (updateParent != null) {
-						updateParent.showUpdateError("Update error:\n" + e.getMessage());
-
-						if (e.getReason() == Reason.UnauthenticatedOrUnauthorized) {
-							if (updateFileLocation.contains("<username>") || updateFileLocation.contains("<password>")) {
-								retryDownload = true;
-							} else {
-								System.err.println("Update error:\nAuthentication error");
-								return false;
-							}
-						} else {
-							return false;
-						}
-					} else {
-						System.err.println("Update error while downloading new version:\n" + e.getMessage());
+						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
 					}
 				} catch (final Exception e) {
-					if (e instanceof ExecutionException && e.getCause() instanceof UserError) {
-						if (updateParent != null) {
-							updateParent.showUpdateError("Update error:\n" + e.getCause().getMessage());
-
-							if (((UserError) e.getCause()).getReason() == Reason.UnauthenticatedOrUnauthorized) {
-								if (updateFileLocation.contains("<username>") || updateFileLocation.contains("<password>")) {
-									retryDownload = true;
-								} else {
-									System.err.println("Update error:\nAuthentication error");
-									return false;
-								}
-							} else {
-								return false;
-							}
-						} else {
-							System.err.println("Update error while downloading new version:\n" + e.getCause().getMessage());
-							return false;
-						}
+					final UserError userError;
+					if (e instanceof UserError) {
+						userError = (UserError) e;
+					} else if (e instanceof ExecutionException && e.getCause() instanceof UserError) {
+						userError = (UserError) e.getCause();
 					} else {
-						showUpdateError(updateParent, "Update error:\n" + e.getMessage());
+						updateParent.showUpdateError("Update error:\n" + e.getMessage());
+						return false;
+					}
+
+					updateParent.showUpdateError("Update error:\n" + userError.getMessage());
+					if (userError.getReason() == Reason.UnauthenticatedOrUnauthorized && (updateFileLocation.contains("<username>") || updateFileLocation.contains("<password>"))) {
+						// Ask for credentials again
+						retryDownload = true;
+					} else {
 						return false;
 					}
 				}
 
 				firstRequest = false;
 			}
-		} else if (updateFileLocation.toLowerCase().startsWith("file://")) {
-			if (downloadTempFile.exists()) {
-				downloadTempFile.delete();
-			}
-			final boolean success = copyUpdateFile(updateParent, downloadTempFile, updateFileLocation);
-			if (!success) {
-				// download stopped by user
-				showUpdateError(updateParent, LangResources.get("canceledByUser"));
-				return false;
-			}
 		} else {
-			// Copy file
-			if (downloadTempFile.exists()) {
-				downloadTempFile.delete();
-			}
+			// "file://" URL or local file path
+			deleteQuietly(downloadTempFile);
 			final boolean success = copyUpdateFile(updateParent, downloadTempFile, updateFileLocation);
 			if (!success) {
 				// download stopped by user
-				showUpdateError(updateParent, LangResources.get("canceledByUser"));
+				updateParent.showUpdateError(LangResources.get("canceledByUser"));
 				return false;
 			}
 		}
@@ -849,7 +767,8 @@ public class ApplicationUpdateUtilities {
 	}
 
 	private static boolean getNewNonInteractiveApplicationVersionFile(final String username, final char[] password, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final File downloadTempFile) throws Exception {
-		if (updateFileLocation.toLowerCase().startsWith("http")) {
+		final String updateFileLocationLowerCase = updateFileLocation.toLowerCase(Locale.ROOT);
+		if (updateFileLocationLowerCase.startsWith("http://") || updateFileLocationLowerCase.startsWith("https://")) {
 			// Download file
 			String downloadUrlWithCredentials = updateFileLocation;
 
@@ -869,9 +788,7 @@ public class ApplicationUpdateUtilities {
 			}
 
 			try {
-				if (downloadTempFile.exists()) {
-					downloadTempFile.delete();
-				}
+				deleteQuietly(downloadTempFile);
 				final boolean success = downloadUpdateFile(null, downloadTempFile, downloadUrlWithCredentials, proxyConfiguration);
 				if (!success) {
 					throw new Exception("Download failed");
@@ -885,19 +802,9 @@ public class ApplicationUpdateUtilities {
 					throw new Exception("Update error:\n" + e.getMessage(), e);
 				}
 			}
-		} else if (updateFileLocation.toLowerCase().startsWith("file://")) {
-			if (downloadTempFile.exists()) {
-				downloadTempFile.delete();
-			}
-			final boolean success = copyUpdateFile(null, downloadTempFile, updateFileLocation);
-			if (!success) {
-				throw new Exception("Download failed");
-			}
 		} else {
-			// Copy file
-			if (downloadTempFile.exists()) {
-				downloadTempFile.delete();
-			}
+			// "file://" URL or local file path
+			deleteQuietly(downloadTempFile);
 			final boolean success = copyUpdateFile(null, downloadTempFile, updateFileLocation);
 			if (!success) {
 				throw new Exception("Download failed");
@@ -907,210 +814,242 @@ public class ApplicationUpdateUtilities {
 		return downloadTempFile.exists();
 	}
 
-	private static String[] createUpdateBatchFile(final String jarFilePath, final File downloadTempFile, final boolean restartApplicationAfterUpdate, final String appParameter) throws Exception {
-		String javaBinPath = SystemUtilities.getJavaBinPath();
-		if (Utilities.isBlank(javaBinPath)) {
-			if (SystemUtilities.isWindowsSystem()) {
-				javaBinPath = "java.exe";
-			} else {
-				javaBinPath = "java";
+	/**
+	 * Quotes a value for a Windows batch file: within double quotes only '%' has a special meaning (and
+	 * Windows paths cannot contain double quotes).
+	 */
+	private static String quoteForBatchFile(final String value) {
+		return "\"" + value.replace("%", "%%") + "\"";
+	}
+
+	/**
+	 * Quotes a value for a POSIX shell script: within single quotes nothing has a special meaning, a single quote
+	 * itself is written as '\''.
+	 */
+	private static String quoteForShellScript(final String value) {
+		return "'" + value.replace("'", "'\\''") + "'";
+	}
+
+	private static String joinQuoted(final List<String> values, final boolean windows) {
+		final StringBuilder result = new StringBuilder();
+		if (values != null) {
+			for (final String value : values) {
+				result.append(' ').append(windows ? quoteForBatchFile(value) : quoteForShellScript(value));
 			}
 		}
+		return result.toString();
+	}
+
+	private static String[] createUpdateBatchFile(final String jarFilePath, final File downloadTempFile, final boolean restartApplicationAfterUpdate, final List<String> jvmParameters, final List<String> appParameters) throws Exception {
+		final String javaBinPath = getJavaBinPath();
+		final File jarFile = new File(jarFilePath);
 		if (SystemUtilities.isWindowsSystem()) {
-			final File batchFile = new File(new File(jarFilePath).getParent() + File.separator + "batchUpdate_" + new File(jarFilePath).getName() + ".cmd");
+			final File batchFile = new File(jarFile.getParentFile(), "batchUpdate_" + jarFile.getName() + ".cmd");
+			final String jar = quoteForBatchFile(jarFilePath);
+			final String tempFile = quoteForBatchFile(downloadTempFile.getAbsolutePath());
 			writeFile(batchFile,
 					"@echo off\r\n"
-							+ "del \"" + jarFilePath + "\"\r\n"
-							+ "if exist \"" + jarFilePath + "\" (\r\n"
+							+ "del " + jar + "\r\n"
+							+ "if exist " + jar + " (\r\n"
 							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "del \"" + jarFilePath + "\"\r\n"
-							+ "if exist \"" + jarFilePath + "\" (\r\n"
+							+ "del " + jar + "\r\n"
+							+ "if exist " + jar + " (\r\n"
 							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "del \"" + jarFilePath + "\"\r\n"
-							+ "if exist \"" + jarFilePath + "\" (\r\n"
+							+ "del " + jar + "\r\n"
+							+ "if exist " + jar + " (\r\n"
 							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "del \"" + jarFilePath + "\"\r\n"
+							+ "del " + jar + "\r\n"
 							+ ")\r\n"
 							+ ")\r\n"
 							+ ")\r\n"
-							+ "ren \"" + downloadTempFile.getAbsolutePath() + "\" \"" + new File(jarFilePath).getName() + "\"\r\n"
-							+ "if not exist \"" + downloadTempFile.getAbsolutePath() + "\" (\r\n"
-							+ (restartApplicationAfterUpdate ? "\"" + javaBinPath + "\" -jar \"" + jarFilePath + "\"" + (appParameter != null ? " " + appParameter : "") + "\r\n" : "")
-							+ "del \"" + batchFile.getAbsolutePath() + "\"\r\n"
+							+ "ren " + tempFile + " " + quoteForBatchFile(jarFile.getName()) + "\r\n"
+							+ "if not exist " + tempFile + " (\r\n"
+							+ (restartApplicationAfterUpdate ? quoteForBatchFile(javaBinPath) + joinQuoted(jvmParameters, true) + " -jar " + jar + joinQuoted(appParameters, true) + "\r\n" : "")
+							+ "del " + quoteForBatchFile(batchFile.getAbsolutePath()) + "\r\n"
 							+ ")\r\n");
 
 			return new String[]{ "cmd", "/c", "start", "/B", batchFile.getAbsolutePath() };
-		} else if (SystemUtilities.isLinuxSystem()) {
-			final File batchFile = new File(new File(jarFilePath).getParent() + File.separator + "batchUpdate_" + new File(jarFilePath).getName() + ".sh");
+		} else {
+			// Linux, macOS and other POSIX systems
+			final File batchFile = new File(jarFile.getParentFile(), "batchUpdate_" + jarFile.getName() + ".sh");
+			final String jar = quoteForShellScript(jarFilePath);
+			final String tempFile = quoteForShellScript(downloadTempFile.getAbsolutePath());
 			writeFile(batchFile,
-					"#!/bin/bash\n"
-							+ "rm \"" + jarFilePath + "\"\n"
-							+ "if [ -f \"" + jarFilePath + "\" ]; then\n"
+					"#!/bin/sh\n"
+							+ "rm -f " + jar + "\n"
+							+ "if [ -f " + jar + " ]; then\n"
 							+ "sleep 3\n"
-							+ "rm \"" + jarFilePath + "\"\n"
-							+ "if [ -f \"" + jarFilePath + "\" ]; then\n"
+							+ "rm -f " + jar + "\n"
+							+ "if [ -f " + jar + " ]; then\n"
 							+ "sleep 3\n"
-							+ "rm \"" + jarFilePath + "\"\n"
-							+ "if [ -f \"" + jarFilePath + "\" ]; then\n"
+							+ "rm -f " + jar + "\n"
+							+ "if [ -f " + jar + " ]; then\n"
 							+ "sleep 3\n"
-							+ "rm \"" + jarFilePath + "\"\n"
+							+ "rm -f " + jar + "\n"
 							+ "fi\n"
 							+ "fi\n"
 							+ "fi\n"
-							+ "mv \"" + downloadTempFile.getAbsolutePath() + "\" \"" + jarFilePath + "\"\n"
-							+ "if ! [ -f \"" + downloadTempFile.getAbsolutePath() + "\" ]; then\n"
-							+ (restartApplicationAfterUpdate ? "\"" + javaBinPath + "\" -jar \"" + jarFilePath + "\"" + (appParameter != null ? " " + appParameter : "") + "\n": "")
-							+ "rm \"" + batchFile.getAbsolutePath() + "\"\n"
+							+ "mv " + tempFile + " " + jar + "\n"
+							+ "if ! [ -f " + tempFile + " ]; then\n"
+							+ (restartApplicationAfterUpdate ? quoteForShellScript(javaBinPath) + joinQuoted(jvmParameters, false) + " -jar " + jar + joinQuoted(appParameters, false) + "\n" : "")
+							+ "rm -f " + quoteForShellScript(batchFile.getAbsolutePath()) + "\n"
 							+ "fi\n");
 
 			return new String[]{ "sh", batchFile.getAbsolutePath() };
-		} else {
-			return null;
 		}
 	}
 
 	/**
-	 * Creates a batch file (Windows) or shell script (Linux) next to the application jar, which waits some seconds,
+	 * Creates a batch file (Windows) or shell script (Linux, macOS) next to the application jar, which waits some seconds,
 	 * starts the application again and deletes itself.
 	 *
 	 * @param jarFilePath path of the application jar to restart
-	 * @param appParameter application parameters as one String, may be null
-	 * @return command to execute the created file, or null if the operating system is not supported
+	 * @param appParameter application parameters as one String, appended unchanged (the caller is responsible for
+	 *            quoting them for the batch file or shell script), may be null
+	 * @return command to execute the created file
 	 * @throws Exception if the file cannot be written
 	 */
 	public static String[] createRestartBatchFile(final String jarFilePath, final String appParameter) throws Exception {
-		String javaBinPath = SystemUtilities.getJavaBinPath();
-		if (Utilities.isBlank(javaBinPath)) {
-			if (SystemUtilities.isWindowsSystem()) {
-				javaBinPath = "java.exe";
-			} else {
-				javaBinPath = "java";
-			}
-		}
+		final String javaBinPath = getJavaBinPath();
+		final File jarFile = new File(jarFilePath);
 		if (SystemUtilities.isWindowsSystem()) {
-			final File batchFile = new File(new File(jarFilePath).getParent() + File.separator + "restart_" + new File(jarFilePath).getName() + ".cmd");
-			if (batchFile.exists()) {
-				batchFile.delete();
-			}
+			final File batchFile = new File(jarFile.getParentFile(), "restart_" + jarFile.getName() + ".cmd");
+			deleteQuietly(batchFile);
 			writeFile(batchFile,
 					"@echo off\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "ping -n 3 127.0.0.1 >nul\r\n"
-							+ "\"" + javaBinPath + "\" -jar \"" + jarFilePath + "\"" + (appParameter != null ? " " + appParameter : "") + "\r\n"
-							+ "del \"" + batchFile.getAbsolutePath() + "\"\r\n");
+							// About 20 seconds, like the former ten "ping -n 3" calls
+							+ "ping -n 21 127.0.0.1 >nul\r\n"
+							+ quoteForBatchFile(javaBinPath) + " -jar " + quoteForBatchFile(jarFilePath) + (appParameter != null ? " " + appParameter : "") + "\r\n"
+							+ "del " + quoteForBatchFile(batchFile.getAbsolutePath()) + "\r\n");
 
 			return new String[]{ "cmd", "/c", "start", "/B", batchFile.getAbsolutePath() };
-		} else if (SystemUtilities.isLinuxSystem()) {
-			final File batchFile = new File(new File(jarFilePath).getParent() + File.separator + "restart_" + new File(jarFilePath).getName() + ".sh");
-			if (batchFile.exists()) {
-				batchFile.delete();
-			}
+		} else {
+			final File batchFile = new File(jarFile.getParentFile(), "restart_" + jarFile.getName() + ".sh");
+			deleteQuietly(batchFile);
 			writeFile(batchFile,
-					"#!/bin/bash\n"
+					"#!/bin/sh\n"
 							+ "sleep 10\n"
-							+ "\"" + javaBinPath + "\" -jar \"" + jarFilePath + "\"" + (appParameter != null ? " " + appParameter : "") + "\n"
-							+ "rm \"" + batchFile.getAbsolutePath() + "\"\n");
+							+ quoteForShellScript(javaBinPath) + " -jar " + quoteForShellScript(jarFilePath) + (appParameter != null ? " " + appParameter : "") + "\n"
+							+ "rm -f " + quoteForShellScript(batchFile.getAbsolutePath()) + "\n");
 
 			return new String[]{ "sh", batchFile.getAbsolutePath() };
-		} else {
-			return null;
 		}
 	}
 
-	private static String replacePlaceholders(String value) {
+	private static String replacePlaceholders(final String value) {
 		if (value == null) {
 			return null;
-		} else {
-			if (value.contains("<system>")) {
-				if (SystemUtilities.isWindowsSystem()) {
-					value = value.replace("<system>", "windows");
-				} else if (SystemUtilities.isLinuxSystem()) {
-					value = value.replace("<system>", "linux");
-				}
-			}
-
-			if (value.contains("<bitmode>")) {
-				if (System.getProperty("os.arch") != null && System.getProperty("os.arch").contains("64")) {
-					value = value.replace("<bitmode>", "64");
-				} else {
-					value = value.replace("<bitmode>", "32");
-				}
-			}
-
-			if (value.contains("<time_seconds>")) {
-				value = value.replace("<time_seconds>", "" + (LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)));
-			}
-
-			return value;
 		}
+
+		String result = value;
+		if (result.contains("<system>")) {
+			if (SystemUtilities.isWindowsSystem()) {
+				result = result.replace("<system>", "windows");
+			} else if (SystemUtilities.isLinuxSystem()) {
+				result = result.replace("<system>", "linux");
+			} else {
+				result = result.replace("<system>", "unix");
+			}
+		}
+
+		if (result.contains("<bitmode>")) {
+			if (System.getProperty("os.arch") != null && System.getProperty("os.arch").contains("64")) {
+				result = result.replace("<bitmode>", "64");
+			} else {
+				result = result.replace("<bitmode>", "32");
+			}
+		}
+
+		if (result.contains("<time_seconds>")) {
+			// Real epoch seconds (LocalDateTime.now() interpreted as UTC was off by the local time zone offset)
+			result = result.replace("<time_seconds>", Long.toString(Instant.now().getEpochSecond()));
+		}
+
+		return result;
 	}
 
 	private static void writeFile(final File file, final String string) throws Exception {
-		try (FileOutputStream out = new FileOutputStream(file)) {
-			out.write(string.getBytes(StandardCharsets.UTF_8));
+		try {
+			Files.write(file.toPath(), string.getBytes(StandardCharsets.UTF_8));
 		} catch (final Exception e) {
 			throw new Exception("Cannot write file " + file.getAbsolutePath(), e);
 		}
 	}
 
-	private static boolean downloadUpdateFile(final ApplicationUpdateParent updateParent, final File downloadTempFile, final String downloadUrl, final ProxyConfiguration proxyConfiguration) throws Exception {
+	private static void deleteQuietly(final File file) {
+		if (file != null && file.exists() && !file.delete()) {
+			System.err.println("Cannot delete file '" + file.getAbsolutePath() + "'");
+		}
+	}
+
+	private static WorkerParentSimple createWorkerParentAdapter(final ApplicationUpdateParent updateParent) {
+		return new WorkerParentSimple() {
+			@Override
+			public void receiveUnlimitedProgressSignal() {
+				// Do nothing
+			}
+
+			@Override
+			public void receiveProgressSignal(final LocalDateTime startTime, final long itemsToDo, final long itemsDone, final String itemsUnitSign) {
+				if (updateParent != null) {
+					updateParent.showUpdateProgress(startTime, itemsToDo, itemsDone, itemsUnitSign);
+				}
+			}
+
+			@Override
+			public void receiveDoneSignal(final LocalDateTime startTime, final LocalDateTime endTime, final long itemsDone, final String itemsUnitSign, final String resultText) {
+				if (updateParent != null) {
+					updateParent.showUpdateDownloadEnd(startTime, endTime, itemsDone, itemsUnitSign);
+				}
+			}
+
+			@Override
+			public boolean cancel() {
+				// Do nothing
+				return true;
+			}
+
+			@Override
+			public void changeTitle(final String text) {
+				// do nothing
+			}
+		};
+	}
+
+	/**
+	 * Runs a download or copy worker and waits for it.
+	 *
+	 * <p>
+	 * The update parent is informed first and may start the worker itself (e.g. a progress dialog starting it
+	 * when it is shown). The worker is only started here, if it was not started by the update parent. Starting it
+	 * before informing the parent made a progress dialog start the same worker a second time, so two threads
+	 * wrote into the same download file.
+	 * </p>
+	 *
+	 * @return false if the worker was canceled
+	 */
+	private static boolean runWorker(final ApplicationUpdateParent updateParent, final WorkerSimple<Boolean> worker) throws Exception {
 		try {
-			final WorkerParentSimple workerParentAdapter = new WorkerParentSimple() {
-				@Override
-				public void receiveUnlimitedProgressSignal() {
-					// Do nothing
-				}
-
-				@Override
-				public void receiveProgressSignal(final LocalDateTime startTime, final long itemsToDo, final long itemsDone, final String itemsUnitSign) {
-					if (updateParent != null) {
-						updateParent.showUpdateProgress(startTime, itemsToDo, itemsDone, itemsUnitSign);
-					}
-				}
-
-				@Override
-				public void receiveDoneSignal(final LocalDateTime startTime, final LocalDateTime endTime, final long itemsDone, final String itemsUnitSign, final String resultText) {
-					if (updateParent != null) {
-						updateParent.showUpdateDownloadEnd(startTime, endTime, itemsDone, itemsUnitSign);
-					}
-				}
-
-				@Override
-				public boolean cancel() {
-					// Do nothing
-					return true;
-				}
-
-				@Override
-				public void changeTitle(final String text) {
-					// do nothing
-				}
-			};
-			final FileDownloadWorker fileDownloadWorker = new FileDownloadWorker(workerParentAdapter, downloadUrl, downloadTempFile).setProxyConfiguration(proxyConfiguration);
-			new Thread(fileDownloadWorker).start();
-
 			if (updateParent != null) {
-				updateParent.showUpdateDownloadStart(fileDownloadWorker);
+				updateParent.showUpdateDownloadStart(worker);
 			}
 
-			while (!fileDownloadWorker.isDone()) {
+			if (worker.getStartTime() == null && !worker.isDone()) {
+				final Thread workerThread = new Thread(worker, "ApplicationUpdate-Download");
+				workerThread.setDaemon(true);
+				workerThread.start();
+			}
+
+			while (!worker.isDone()) {
 				// Wait for download process
-				Thread.sleep(1000);
+				Thread.sleep(200);
 			}
 
-			if (fileDownloadWorker.isCancelled()) {
+			if (worker.isCancelled()) {
 				return false;
 			}
 
-			if (!fileDownloadWorker.get()) {
+			if (!worker.get()) {
 				throw new Exception("Download was not successful");
 			}
 
@@ -1124,68 +1063,14 @@ public class ApplicationUpdateUtilities {
 		}
 	}
 
+	private static boolean downloadUpdateFile(final ApplicationUpdateParent updateParent, final File downloadTempFile, final String downloadUrl, final ProxyConfiguration proxyConfiguration) throws Exception {
+		final FileDownloadWorker fileDownloadWorker = new FileDownloadWorker(createWorkerParentAdapter(updateParent), downloadUrl, downloadTempFile).setProxyConfiguration(proxyConfiguration);
+		return runWorker(updateParent, fileDownloadWorker);
+	}
+
 	private static boolean copyUpdateFile(final ApplicationUpdateParent updateParent, final File downloadTempFile, final String downloadFile) throws Exception {
-		try {
-			final WorkerParentSimple workerParentAdapter = new WorkerParentSimple() {
-				@Override
-				public void receiveUnlimitedProgressSignal() {
-					// Do nothing
-				}
-
-				@Override
-				public void receiveProgressSignal(final LocalDateTime startTime, final long itemsToDo, final long itemsDone, final String itemsUnitSign) {
-					if (updateParent != null) {
-						updateParent.showUpdateProgress(startTime, itemsToDo, itemsDone, itemsUnitSign);
-					}
-				}
-
-				@Override
-				public void receiveDoneSignal(final LocalDateTime startTime, final LocalDateTime endTime, final long itemsDone, final String itemsUnitSign, final String resultText) {
-					if (updateParent != null) {
-						updateParent.showUpdateDownloadEnd(startTime, endTime, itemsDone, itemsUnitSign);
-					}
-				}
-
-				@Override
-				public boolean cancel() {
-					// Do nothing
-					return true;
-				}
-
-				@Override
-				public void changeTitle(final String text) {
-					// do nothing
-				}
-			};
-
-			final FileCopyWorker fileCopyWorker = new FileCopyWorker(workerParentAdapter, downloadFile, downloadTempFile);
-			new Thread(fileCopyWorker).start();
-
-			if (updateParent != null) {
-				updateParent.showUpdateDownloadStart(fileCopyWorker);
-			}
-
-			while (!fileCopyWorker.isDone()) {
-				// Wait for download process
-				Thread.sleep(1000);
-			}
-
-			if (fileCopyWorker.isCancelled()) {
-				return false;
-			}
-
-			if (!fileCopyWorker.get()) {
-				throw new Exception("Download was not successful");
-			}
-
-			return true;
-		} catch (final Exception e) {
-			if (e instanceof ExecutionException && e.getCause() instanceof UserError) {
-				throw (UserError) e.getCause();
-			} else {
-				throw e;
-			}
-		}
+		final FileCopyWorker fileCopyWorker = new FileCopyWorker(createWorkerParentAdapter(updateParent), downloadFile, downloadTempFile);
+		return runWorker(updateParent, fileCopyWorker);
 	}
 
 	private static void showUpdateError(final ApplicationUpdateParent updateParent, final String errorMessage) {
@@ -1201,7 +1086,7 @@ public class ApplicationUpdateUtilities {
 	/**
 	 * Checks that all files of a jar (except the manifest and the signature files) are signed by a signer, whose
 	 * complete certificate path (as contained in the signature) is currently valid and leads to one of the given
-	 * trusted certificates. Revocation is not checked.
+	 * trusted certificates. Revocation is not checked. A jar without any signed file is rejected.
 	 * <p>
 	 * The certificate path of each signer is validated as a whole. Validating single certificates of the
 	 * signature would be insecure: the certificate list of a signature is assembled by matching names only, so
@@ -1232,6 +1117,7 @@ public class ApplicationUpdateUtilities {
 
 			final byte[] buffer = new byte[4096];
 			final Enumeration<JarEntry> jarEntriesEnumerator = jar.entries();
+			int signedFileCount = 0;
 
 			while (jarEntriesEnumerator.hasMoreElements()) {
 				final JarEntry jarEntry = jarEntriesEnumerator.nextElement();
@@ -1269,7 +1155,13 @@ public class ApplicationUpdateUtilities {
 					if (!isSignedByTrustedSigner) {
 						throw new SecurityException("The jar file contains untrusted signed files: " + jarEntry.getName());
 					}
+					signedFileCount++;
 				}
+			}
+
+			if (signedFileCount == 0) {
+				// A jar with only a manifest would replace the application by nothing
+				throw new SecurityException("The jar file contains no signed files");
 			}
 
 			return true;
@@ -1325,18 +1217,28 @@ public class ApplicationUpdateUtilities {
 	}
 
 	/**
-	 * Deletes the updater and restarter jar files left over from a previous update or restart of the running application.
+	 * Deletes the files left over from a previous update or restart of the running application: updater jar,
+	 * restarter jars in the temp directory, an unfinished download and fallback scripts.
 	 */
 	public static void removeUpdateLeftovers() {
 		final String jarFilePath = SystemUtilities.getCurrentlyRunningJarFilePath();
 		if (Utilities.isNotBlank(jarFilePath)) {
-			final File updaterFile = new File(new File(jarFilePath).getParent(), "Updater_"+ new File(jarFilePath).getName() +".jar");
-			if (updaterFile.exists() && !updaterFile.delete()) {
-				System.err.println("Cannot remove leftover updater file '" + updaterFile.getAbsolutePath() + "'");
-			}
-			final File restarterFile = new File(System.getProperty("java.io.tmpdir"), "Restarter_" + new File(jarFilePath).getName() +".jar");
-			if (restarterFile.exists() && !restarterFile.delete()) {
-				System.err.println("Cannot remove leftover restarter file '" + restarterFile.getAbsolutePath() + "'");
+			final File jarFile = new File(jarFilePath);
+			final File jarDirectory = jarFile.getAbsoluteFile().getParentFile();
+
+			deleteQuietly(new File(jarDirectory, UPDATER_FILE_PREFIX + jarFile.getName() + ".jar"));
+			deleteQuietly(new File(jarDirectory, DOWNLOAD_TEMP_FILE_PREFIX + jarFile.getName()));
+
+			// Restarter jars have random names (see restart()); files of other users or still running restarters are skipped
+			final File tempDirectory = new File(System.getProperty("java.io.tmpdir"));
+			final String restarterFilePrefix = RESTARTER_FILE_PREFIX + jarFile.getName();
+			final File[] restarterFiles = tempDirectory.listFiles((directory, name) -> name.startsWith(restarterFilePrefix) && name.endsWith(".jar"));
+			if (restarterFiles != null) {
+				for (final File restarterFile : restarterFiles) {
+					if (restarterFile.isFile() && Files.isWritable(restarterFile.toPath())) {
+						restarterFile.delete();
+					}
+				}
 			}
 		}
 	}
@@ -1368,7 +1270,7 @@ public class ApplicationUpdateUtilities {
 		if (assetName == null) {
 			return false;
 		}
-		final String assetNameLowerCase = assetName.toLowerCase();
+		final String assetNameLowerCase = assetName.toLowerCase(Locale.ROOT);
 		if (!assetNameLowerCase.endsWith(".jar")) {
 			return false;
 		}

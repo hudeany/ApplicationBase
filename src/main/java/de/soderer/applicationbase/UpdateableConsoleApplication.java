@@ -29,8 +29,14 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	 * @param applicationName name of the application shown in messages
 	 * @param applicationVersion currently running version of the application
 	 * @throws HeadlessException never thrown, declared for compatibility
+	 * @throws IllegalArgumentException if applicationName is blank or applicationVersion is null
 	 */
 	public UpdateableConsoleApplication(final String applicationName, final Version applicationVersion) throws HeadlessException {
+		if (Utilities.isBlank(applicationName)) {
+			throw new IllegalArgumentException("Invalid empty applicationName");
+		} else if (applicationVersion == null) {
+			throw new IllegalArgumentException("Invalid empty applicationVersion");
+		}
 		this.applicationName = applicationName;
 		this.applicationVersion = applicationVersion;
 	}
@@ -45,16 +51,18 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	 */
 	@Override
 	public boolean askForUpdate(final Version availableNewVersion) throws Exception {
-		final Console console = System.console();
-		if (console == null) {
-			throw new Exception("Couldn't get Console instance");
-		}
-		ConsoleUtilities.clearScreen();
 		if (availableNewVersion == null) {
+			// Only an information, no input needed: works without an interactive console too (e.g. IDE, redirected output)
 			System.out.println(LangResources.get("noNewerVersion", applicationName, applicationVersion.toString()));
 			System.out.println();
 			return false;
 		} else {
+			final Console console = System.console();
+			if (console == null) {
+				throw new Exception("Couldn't get Console instance");
+			}
+			ConsoleUtilities.clearScreen();
+
 			System.out.println(LangResources.get("newApplicationVersion", availableNewVersion.toString(), applicationName, applicationVersion.toString()));
 			final String input = new SimpleConsoleInput().withPrompt(LangResources.get("installUpdate") + " (" + LangResources.get("yN") + "): ").readInput();
 			System.out.println();

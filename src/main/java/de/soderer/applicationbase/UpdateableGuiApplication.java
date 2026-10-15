@@ -25,7 +25,7 @@ import de.soderer.utilities.worker.WorkerSimple;
  * </p>
  */
 public class UpdateableGuiApplication extends SecureDataGuiApplication implements ApplicationUpdateParent {
-	private static final long serialVersionUID = 1869492889654406822L;
+	private static final long serialVersionUID = -6286611962531947310L;
 
 	/** Name of the application, used in the titles of the update dialogs */
 	private final String applicationName;
@@ -86,7 +86,7 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 			updateProgressDialog = null;
 		}
 
-		new QuestionDialog(this, "Update " + applicationName + " Error", errorText).setBackgroundColor(SwingColor.LightRed).open();
+		new QuestionDialog(this, "Update " + applicationName + " Error", errorText).withBackgroundColor(SwingColor.LightRed).open();
 	}
 
 	@Override
@@ -129,6 +129,12 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 		}
 	}
 
+	/**
+	 * Shows a modal progress dialog, which starts the worker when it is shown and
+	 * blocks until the download is done or canceled.
+	 *
+	 * @param worker download worker, not started yet
+	 */
 	@Override
 	public void showUpdateDownloadStart(final WorkerSimple<Boolean> worker) {
 		updateProgressDialog = new ProgressDialog<>(this, "Update " + applicationName, null, worker);

@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.management.ManagementFactory;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -615,10 +616,11 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 
 	private void checkUpdate() {
 		try {
-			final String proxyConfigurationType = getProxyConfigurationType();
+			// A configuration without proxy settings means a direct connection
+			final String proxyConfigurationType = Utilities.isBlank(getProxyConfigurationType()) ? "None" : getProxyConfigurationType();
 			ApplicationUpdateUtilities.executeUpdate(updateParent, versioninfoDownloadURL, new ProxyConfiguration(ProxyConfigurationType.getFromString(proxyConfigurationType), getProxyUrl()), applicationName, applicationVersion, trustedUpdateCaCertificates, null, null, appParameters, true, false);
 		} catch (final Exception e) {
-			new QuestionDialog(this, applicationName + " ERROR", "ERROR:\n" + e.getMessage()).setBackgroundColor(SwingColor.LightRed).open();
+			new QuestionDialog(this, applicationName + " ERROR", "ERROR:\n" + e.getMessage()).withBackgroundColor(SwingColor.LightRed).open();
 		}
 	}
 
@@ -636,127 +638,175 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 			final String javaHome = System.getProperty("java.home");
 
 			if (SystemUtilities.isWindowsSystem()) {
-				final String desktopLinkFilePath = System.getProperty("user.home") + File.separator + "Desktop" + File.separator + applicationName + ".lnk";
-				if (new File(desktopLinkFilePath).exists()) {
-					new File(desktopLinkFilePath).delete();
-				}
-
-				final String userHomeApplicationDirectory = System.getProperty("user.home") + File.separator + "." + applicationName;
-				final String iconPath = userHomeApplicationDirectory + File.separator + applicationName + ".ico";
-				if (!new File(userHomeApplicationDirectory).exists()) {
-					new File(userHomeApplicationDirectory).mkdir();
-				}
-				if (new File(iconPath).exists()) {
-					new File(iconPath).delete();
-				}
-
-				final String tempScriptFile = System.getProperty("java.io.tmpdir") + File.separator + applicationName + "_createlink.vbs";
-				if (new File(tempScriptFile).exists()) {
-					new File(tempScriptFile).delete();
-				}
-
-				// Only reference the icon in the link, if it really exists, otherwise Windows reports the missing icon file
-				boolean iconAvailable = false;
-				if (iconImageDataWindows != null && iconImageDataWindows.length > 0) {
-					FileUtilities.write(new File(iconPath), iconImageDataWindows);
-					iconAvailable = new File(iconPath).isFile();
-				}
-
-				final StringBuilder data = new StringBuilder();
-				data.append("set shortcut = CreateObject(\"WScript.Shell\").CreateShortcut(\"" + desktopLinkFilePath + "\")\n");
-				data.append("shortcut.Description = \"" + applicationName + "\"\n");
-				if (Utilities.isNotBlank(javaHome)) {
-					data.append("shortcut.TargetPath = \"" + javaHome + "\\bin\\javaw.exe\"\n");
-					// JVM options of the currently running process must be placed before "-jar", everything after the jar file path is passed to the application
-					final StringBuilder commandLineArguments = new StringBuilder();
-					for (final String jvmArgument : getJvmArgumentsForDesktopLink()) {
-						commandLineArguments.append(quoteWindowsCommandLineArgument(jvmArgument)).append(" ");
-					}
-					commandLineArguments.append("-jar ").append(quoteWindowsCommandLineArgument(applicationJarFileName));
-					// Quotes within a VBScript string literal are escaped by doubling them
-					data.append("shortcut.Arguments = \"" + commandLineArguments.toString().replace("\"", "\"\"") + "\"\n");
-				} else {
-					data.append("shortcut.TargetPath = \"" + applicationJarFileName + "\"\n");
-				}
-				if (iconAvailable) {
-					data.append("shortcut.IconLocation = \"" + iconPath + ",0\"\n");
-				} else if (Utilities.isNotBlank(javaHome)) {
-					// Fallback: icon of javaw.exe instead of a reference to a missing file
-					data.append("shortcut.IconLocation = \"" + javaHome + "\\bin\\javaw.exe,0\"\n");
-				}
-				data.append("shortcut.Save\n");
-
-				try {
-					// WScript reads scripts as ANSI or as UTF-16LE with BOM, but not as UTF-8 (paths with umlauts would break)
-					FileUtilities.writeStringToFile(new File(tempScriptFile), "\uFEFF" + data.toString(), StandardCharsets.UTF_16LE);
-
-					// Wait for the script, so the link exists before the success message and the script is not deleted while still in use
-					final Process process = Runtime.getRuntime().exec(new String[] { "wscript", "//B", tempScriptFile }, null, null);
-					final int exitCode = process.waitFor();
-					new File(tempScriptFile).delete();
-
-					if (exitCode == 0 && new File(desktopLinkFilePath).exists()) {
-						JOptionPane.showMessageDialog(this, LangResources.get("desktopLinkWasCreatedAt", desktopLinkFilePath), LangResources.get("createDesktopLink"), JOptionPane.PLAIN_MESSAGE);
-					} else {
-						JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", "wscript exit code " + exitCode), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
-					}
-				} catch (final InterruptedException e) {
-					Thread.currentThread().interrupt();
-					JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
-				} catch (final IOException e) {
-					JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
-				}
+				createWindowsDesktopLink(applicationJarFileName, javaHome);
 			} else if (SystemUtilities.isLinuxSystem()) {
-				String desktopLinkFilePath;
-				String iconPath;
-				final File localShareApplicationsDirectory = new File(System.getProperty("user.home") + "/.local/share/applications");
-				if (localShareApplicationsDirectory.exists()) {
-					desktopLinkFilePath = localShareApplicationsDirectory.getAbsolutePath() + File.separator + applicationName + ".desktop";
-					iconPath = localShareApplicationsDirectory.getAbsolutePath() + File.separator + applicationName + ".png";
-				} else {
-					desktopLinkFilePath = System.getProperty("user.home") + File.separator + "Desktop" + File.separator + applicationName + ".desktop";
-					iconPath = System.getProperty("user.home") + File.separator + applicationName + ".png";
-				}
-				if (new File(desktopLinkFilePath).exists()) {
-					new File(desktopLinkFilePath).delete();
-				}
-				if (new File(iconPath).exists()) {
-					new File(iconPath).delete();
-				}
-
-				final StringBuilder data = new StringBuilder();
-				data.append("[Desktop Entry]\n");
-				data.append("Encoding=UTF-8\n");
-				data.append("Name=" + applicationName + "\n");
-
-				if (iconImageLinux != null) {
-					ImageIO.write(toBufferedImage(iconImageLinux), "png", new File(iconPath));
-					data.append("Icon=" + iconPath + "\n");
-				}
-
-				// %U-parameter allows drag and drop of files on starter bar in unity
-				// JVM option "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED" allows the application to be pinned in the Linux Gnome applications dock.
-				// JVM options must be placed before "-jar", everything after the jar file path is passed to the application.
-				data.append("Exec=java --add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED -jar " + quoteDesktopExecArgument(applicationJarFileName) + " %U\n");
-				data.append("Terminal=false\n");
-				data.append("Type=Application\n");
-
-				if (applicationClassName != null) {
-					// StartupWMClass must match the WM_CLASS set by the main application, so the launcher can group all windows of the same application
-					data.append("StartupWMClass=" + applicationClassName + "\n");
-				}
-
-				try {
-					FileUtilities.writeStringToFile(new File(desktopLinkFilePath), data.toString(), StandardCharsets.UTF_8);
-
-					new File(desktopLinkFilePath).setExecutable(true);
-
-					JOptionPane.showMessageDialog(this, LangResources.get("desktopLinkWasCreatedAt", desktopLinkFilePath), LangResources.get("createDesktopLink"), JOptionPane.PLAIN_MESSAGE);
-				} catch (final IOException e) {
-					JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
-				}
+				createLinuxDesktopLink(applicationJarFileName, javaHome);
 			}
 		} catch (final Exception e) {
+			JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
+		}
+	}
+
+	/**
+	 * Creates the desktop link on Windows via a VBScript. The desktop folder is
+	 * determined by Windows itself ("SpecialFolders"), because it may be
+	 * redirected (e.g. to OneDrive) or localized.
+	 */
+	private void createWindowsDesktopLink(final String applicationJarFileName, final String javaHome) throws Exception {
+		final String userHomeApplicationDirectory = System.getProperty("user.home") + File.separator + "." + applicationName;
+		final String iconPath = userHomeApplicationDirectory + File.separator + applicationName + ".ico";
+		if (!new File(userHomeApplicationDirectory).exists()) {
+			new File(userHomeApplicationDirectory).mkdirs();
+		}
+		if (new File(iconPath).exists()) {
+			new File(iconPath).delete();
+		}
+
+		// Only reference the icon in the link, if it really exists, otherwise Windows reports the missing icon file
+		boolean iconAvailable = false;
+		if (iconImageDataWindows != null && iconImageDataWindows.length > 0) {
+			FileUtilities.write(new File(iconPath), iconImageDataWindows);
+			iconAvailable = new File(iconPath).isFile();
+		}
+
+		final File tempScriptFile = File.createTempFile(applicationName.replaceAll("[^A-Za-z0-9_.-]", "_") + "_createlink_", ".vbs");
+		final File resultFile = File.createTempFile(applicationName.replaceAll("[^A-Za-z0-9_.-]", "_") + "_createlink_", ".txt");
+
+		final StringBuilder data = new StringBuilder();
+		data.append("Set shell = CreateObject(\"WScript.Shell\")\n");
+		data.append("Set fso = CreateObject(\"Scripting.FileSystemObject\")\n");
+		data.append("linkPath = fso.BuildPath(shell.SpecialFolders(\"Desktop\"), " + toVbsString(applicationName + ".lnk") + ")\n");
+		data.append("If fso.FileExists(linkPath) Then fso.DeleteFile linkPath, True\n");
+		data.append("Set shortcut = shell.CreateShortcut(linkPath)\n");
+		data.append("shortcut.Description = " + toVbsString(applicationName) + "\n");
+		if (Utilities.isNotBlank(javaHome)) {
+			data.append("shortcut.TargetPath = " + toVbsString(javaHome + "\\bin\\javaw.exe") + "\n");
+			// JVM options of the currently running process must be placed before "-jar", everything after the jar file path is passed to the application
+			final StringBuilder commandLineArguments = new StringBuilder();
+			for (final String jvmArgument : getJvmArgumentsForDesktopLink()) {
+				commandLineArguments.append(quoteWindowsCommandLineArgument(jvmArgument)).append(" ");
+			}
+			commandLineArguments.append("-jar ").append(quoteWindowsCommandLineArgument(applicationJarFileName));
+			data.append("shortcut.Arguments = " + toVbsString(commandLineArguments.toString()) + "\n");
+		} else {
+			data.append("shortcut.TargetPath = " + toVbsString(applicationJarFileName) + "\n");
+		}
+		if (iconAvailable) {
+			data.append("shortcut.IconLocation = " + toVbsString(iconPath + ",0") + "\n");
+		} else if (Utilities.isNotBlank(javaHome)) {
+			// Fallback: icon of javaw.exe instead of a reference to a missing file
+			data.append("shortcut.IconLocation = " + toVbsString(javaHome + "\\bin\\javaw.exe,0") + "\n");
+		}
+		data.append("shortcut.Save\n");
+		// Report the link path back as UTF-16 (TristateTrue), so paths with umlauts survive
+		data.append("Set resultFile = fso.OpenTextFile(" + toVbsString(resultFile.getAbsolutePath()) + ", 2, True, -1)\n");
+		data.append("resultFile.Write linkPath\n");
+		data.append("resultFile.Close\n");
+
+		try {
+			// WScript reads scripts as ANSI or as UTF-16LE with BOM, but not as UTF-8 (paths with umlauts would break)
+			FileUtilities.writeStringToFile(tempScriptFile, "\uFEFF" + data.toString(), StandardCharsets.UTF_16LE);
+
+			// Wait for the script, so the link exists before the success message and the script is not deleted while still in use
+			final Process process = new ProcessBuilder("wscript", "//B", tempScriptFile.getAbsolutePath())
+					.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+					.redirectError(ProcessBuilder.Redirect.DISCARD)
+					.start();
+			final int exitCode = process.waitFor();
+
+			String desktopLinkFilePath = null;
+			if (resultFile.length() > 0) {
+				desktopLinkFilePath = new String(Files.readAllBytes(resultFile.toPath()), StandardCharsets.UTF_16).trim();
+			}
+
+			if (exitCode == 0 && Utilities.isNotBlank(desktopLinkFilePath) && new File(desktopLinkFilePath).exists()) {
+				JOptionPane.showMessageDialog(this, LangResources.get("desktopLinkWasCreatedAt", desktopLinkFilePath), LangResources.get("createDesktopLink"), JOptionPane.PLAIN_MESSAGE);
+			} else {
+				JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", "wscript exit code " + exitCode), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
+			}
+		} catch (final InterruptedException e) {
+			Thread.currentThread().interrupt();
+			JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
+		} catch (final IOException e) {
+			JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
+		} finally {
+			tempScriptFile.delete();
+			resultFile.delete();
+		}
+	}
+
+	/**
+	 * VBScript string literal: quotes are escaped by doubling them.
+	 */
+	private static String toVbsString(final String value) {
+		return "\"" + value.replace("\"", "\"\"").replace("\r", "").replace("\n", " ") + "\"";
+	}
+
+	/**
+	 * Creates the launcher on Linux in "~/.local/share/applications" (XDG
+	 * standard, created if missing), where it shows up in the application menu
+	 * of the desktop environment. The localized desktop folder (e.g.
+	 * "~/Schreibtisch") is not used. The link starts the same Java runtime with
+	 * the same JVM options as the running application.
+	 */
+	private void createLinuxDesktopLink(final String applicationJarFileName, final String javaHome) throws Exception {
+		final String dataHome = Utilities.isNotBlank(System.getenv("XDG_DATA_HOME")) ? System.getenv("XDG_DATA_HOME") : System.getProperty("user.home") + "/.local/share";
+		final File applicationsDirectory = new File(dataHome, "applications");
+		if (!applicationsDirectory.isDirectory() && !applicationsDirectory.mkdirs()) {
+			throw new IOException("Cannot create directory " + applicationsDirectory.getAbsolutePath());
+		}
+
+		// Only path separators are replaced, so the file name stays the same as for links created by former versions
+		final String fileBaseName = applicationName.replaceAll("[/\\\\]", "_");
+		final File desktopLinkFile = new File(applicationsDirectory, fileBaseName + ".desktop");
+		final File iconFile = new File(applicationsDirectory, fileBaseName + ".png");
+		if (desktopLinkFile.exists()) {
+			desktopLinkFile.delete();
+		}
+		if (iconFile.exists()) {
+			iconFile.delete();
+		}
+
+		final StringBuilder data = new StringBuilder();
+		data.append("[Desktop Entry]\n");
+		// Line breaks would start a new key in the .desktop file
+		data.append("Name=" + applicationName.replaceAll("[\\r\\n]+", " ") + "\n");
+
+		if (iconImageLinux != null) {
+			ImageIO.write(toBufferedImage(iconImageLinux), "png", iconFile);
+			data.append("Icon=" + iconFile.getAbsolutePath() + "\n");
+		}
+
+		final String javaBinary = Utilities.isNotBlank(javaHome) && new File(javaHome, "bin/java").canExecute() ? new File(javaHome, "bin/java").getAbsolutePath() : "java";
+		final StringBuilder exec = new StringBuilder(quoteDesktopExecArgument(javaBinary));
+		final List<String> jvmArguments = getJvmArgumentsForDesktopLink();
+		// JVM option "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED" allows the application to be pinned in the Linux Gnome applications dock.
+		final String addOpensX11 = "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED";
+		if (!jvmArguments.contains(addOpensX11)) {
+			jvmArguments.add(0, addOpensX11);
+		}
+		// JVM options must be placed before "-jar", everything after the jar file path is passed to the application.
+		for (final String jvmArgument : jvmArguments) {
+			exec.append(' ').append(quoteDesktopExecArgument(jvmArgument));
+		}
+		// %U-parameter allows drag and drop of files on starter bar in unity
+		exec.append(" -jar ").append(quoteDesktopExecArgument(applicationJarFileName)).append(" %U");
+		data.append("Exec=" + exec + "\n");
+		data.append("Terminal=false\n");
+		data.append("Type=Application\n");
+
+		if (applicationClassName != null) {
+			// StartupWMClass must match the WM_CLASS set by the main application, so the launcher can group all windows of the same application
+			data.append("StartupWMClass=" + applicationClassName + "\n");
+		}
+
+		try {
+			FileUtilities.writeStringToFile(desktopLinkFile, data.toString(), StandardCharsets.UTF_8);
+
+			desktopLinkFile.setExecutable(true);
+
+			JOptionPane.showMessageDialog(this, LangResources.get("desktopLinkWasCreatedAt", desktopLinkFile.getAbsolutePath()), LangResources.get("createDesktopLink"), JOptionPane.PLAIN_MESSAGE);
+		} catch (final IOException e) {
 			JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", e.getMessage()), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
 		}
 	}
@@ -997,9 +1047,8 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * contains no enum definition for the language key.
 	 *
 	 * @param availableLanguages language codes, null for none
-	 * @return this dialog for chaining
 	 */
-	public ApplicationConfigurationDialog setAvailableLanguages(final List<String> availableLanguages) {
+	public void setAvailableLanguages(final List<String> availableLanguages) {
 		this.availableLanguages = availableLanguages == null ? new ArrayList<>() : availableLanguages;
 
 		if (availableLanguagesDropDown != null) {
@@ -1010,7 +1059,17 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 				technicalChange = false;
 			}
 		}
+	}
 
+	/**
+	 * Sets the languages offered for selection and returns this dialog for
+	 * chaining.
+	 *
+	 * @param availableLanguagesValue language codes, null for none
+	 * @return this dialog for chaining
+	 */
+	public ApplicationConfigurationDialog withAvailableLanguages(final List<String> availableLanguagesValue) {
+		setAvailableLanguages(availableLanguagesValue);
 		return this;
 	}
 }
