@@ -6,7 +6,6 @@ import java.time.LocalDateTime;
 import de.soderer.swing.CredentialsDialog;
 import de.soderer.swing.ProgressDialog;
 import de.soderer.swing.QuestionDialog;
-import de.soderer.swing.SecureDataGuiApplication;
 import de.soderer.swing.SwingColor;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
