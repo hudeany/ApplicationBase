@@ -13,6 +13,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.CodeSigner;
 import java.security.cert.CertPath;
 import java.security.cert.CertPathValidator;
+import java.security.cert.CertPathValidatorException;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.PKIXParameters;
@@ -22,6 +23,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -662,8 +664,10 @@ public class ApplicationUpdateUtilities {
 
 		if (trustedCertificates.size() == 0) {
 			throw new Exception("Trusted CA certificate is missing");
-		} else if (!verifyJarSignature(updateFile, trustedCertificates)) {
-			throw new Exception("Signature of updatefile is invalid");
+		}
+		final String signatureProblem = getJarSignatureProblem(updateFile, trustedCertificates);
+		if (signatureProblem != null) {
+			throw new Exception("Signature of updatefile is invalid: " + signatureProblem);
 		}
 	}
 
@@ -1119,12 +1123,17 @@ public class ApplicationUpdateUtilities {
 
 	/**
 	 * Checks that all files of a jar (except the manifest and the signature files) are signed by a signer, whose
-	 * complete certificate path (as contained in the signature) is currently valid and leads to one of the given
-	 * trusted certificates. Revocation is not checked. A jar without any signed file is rejected.
+	 * complete certificate path (as contained in the signature) leads to one of the given trusted certificates and
+	 * is valid. Revocation is not checked. A jar without any signed file is rejected.
 	 * <p>
 	 * The certificate path of each signer is validated as a whole. Validating single certificates of the
 	 * signature would be insecure: the certificate list of a signature is assembled by matching names only, so
 	 * an attacker could add a genuine intermediate CA certificate to a jar signed with his own key.
+	 * </p>
+	 * <p>
+	 * The certificates must be valid at the time of signing, if the signature has a timestamp of a timestamp
+	 * authority (jarsigner -tsa), otherwise at the current time. So a timestamped jar stays valid after its signing
+	 * certificate expired.
 	 * </p>
 	 *
 	 * @param jarFile jar file to check
@@ -1132,22 +1141,33 @@ public class ApplicationUpdateUtilities {
 	 * @return true if the jar is completely signed by a trusted certificate, false otherwise or if no trusted certificates are given
 	 */
 	public static boolean verifyJarSignature(final File jarFile, final Collection<? extends Certificate> trustedCertificates) {
+		return getJarSignatureProblem(jarFile, trustedCertificates) == null;
+	}
+
+	/**
+	 * Checks the signature of a jar like {@link #verifyJarSignature(File, Collection)} and describes the problem found.
+	 *
+	 * @param jarFile jar file to check
+	 * @param trustedCertificates trusted CA certificates
+	 * @return null if the jar is completely signed by a trusted certificate, otherwise a description of the problem
+	 */
+	public static String getJarSignatureProblem(final File jarFile, final Collection<? extends Certificate> trustedCertificates) {
 		if (trustedCertificates == null || trustedCertificates.size() == 0) {
-			return false;
+			return "No trusted certificates given";
 		}
 
 		try (JarFile jar = new JarFile(jarFile, true)) {
 			final Manifest manifest = jar.getManifest();
 			if (manifest == null) {
-				throw new SecurityException("The jar file has no manifest, which contains the file signatures");
+				return "The jar file has no manifest, which contains the file signatures";
 			}
 
 			final Set<TrustAnchor> trustAnchors = new HashSet<>();
 			for (final Certificate trustedRootCert : trustedCertificates) {
 				trustAnchors.add(new TrustAnchor((X509Certificate) trustedRootCert, null));
 			}
-			// The same signer signs all entries, so each certificate path is only validated once
-			final Map<CertPath, Boolean> validatedCertPaths = new HashMap<>();
+			// The same signer signs all entries, so each signer is only validated once (null: valid, otherwise the problem)
+			final Map<CodeSigner, String> validatedCodeSigners = new HashMap<>();
 
 			final byte[] buffer = new byte[4096];
 			final Enumeration<JarEntry> jarEntriesEnumerator = jar.entries();
@@ -1169,25 +1189,23 @@ public class ApplicationUpdateUtilities {
 				if (!jarEntry.isDirectory() && !isSignatureRelatedEntry(jarEntry.getName())) {
 					final CodeSigner[] codeSigners = jarEntry.getCodeSigners();
 					if (codeSigners == null || codeSigners.length == 0) {
-						throw new SecurityException("The jar file contains unsigned files: " + jarEntry.getName());
+						// Also the case for signatures with algorithms disabled by the JRE (see "jdk.jar.disabledAlgorithms" in java.security)
+						return "The jar file contains unsigned files (or files signed with an algorithm disabled by this Java version): " + jarEntry.getName();
 					}
 
-					boolean isSignedByTrustedSigner = false;
+					String signerProblem = null;
 					for (final CodeSigner codeSigner : codeSigners) {
-						final CertPath signerCertPath = codeSigner.getSignerCertPath();
-						Boolean isValid = validatedCertPaths.get(signerCertPath);
-						if (isValid == null) {
-							isValid = validateCertPath(signerCertPath, trustAnchors);
-							validatedCertPaths.put(signerCertPath, isValid);
+						if (!validatedCodeSigners.containsKey(codeSigner)) {
+							validatedCodeSigners.put(codeSigner, getCodeSignerProblem(codeSigner, trustAnchors));
 						}
-						if (isValid) {
-							isSignedByTrustedSigner = true;
+						signerProblem = validatedCodeSigners.get(codeSigner);
+						if (signerProblem == null) {
 							break;
 						}
 					}
 
-					if (!isSignedByTrustedSigner) {
-						throw new SecurityException("The jar file contains untrusted signed files: " + jarEntry.getName());
+					if (signerProblem != null) {
+						return "The jar file contains untrusted signed files (" + jarEntry.getName() + "): " + signerProblem;
 					}
 					signedFileCount++;
 				}
@@ -1195,31 +1213,40 @@ public class ApplicationUpdateUtilities {
 
 			if (signedFileCount == 0) {
 				// A jar with only a manifest would replace the application by nothing
-				throw new SecurityException("The jar file contains no signed files");
+				return "The jar file contains no signed files";
 			}
 
-			return true;
+			return null;
 		} catch (final Exception e) {
-			e.printStackTrace();
-			return false;
+			return e.getClass().getSimpleName() + ": " + e.getMessage();
 		}
 	}
 
 	/**
-	 * Validates a complete certificate path (signer certificate first) against the trust anchors, including the
-	 * validity periods of all its certificates.
+	 * Validates the complete certificate path of a signer (signer certificate first) against the trust anchors,
+	 * including the validity periods of all its certificates at the signature timestamp, or now without timestamp.
+	 *
+	 * @return null if valid, otherwise a description of the problem
 	 */
-	private static boolean validateCertPath(final CertPath certPath, final Set<TrustAnchor> trustAnchors) {
+	private static String getCodeSignerProblem(final CodeSigner codeSigner, final Set<TrustAnchor> trustAnchors) {
+		final CertPath certPath = codeSigner.getSignerCertPath();
 		try {
 			if (certPath == null || certPath.getCertificates().isEmpty() || !(certPath.getCertificates().get(0) instanceof X509Certificate)) {
-				return false;
+				return "Signer has no X.509 certificate";
 			}
 
 			final X509Certificate signerCertificate = (X509Certificate) certPath.getCertificates().get(0);
+			final Date validationDate = codeSigner.getTimestamp() != null ? codeSigner.getTimestamp().getTimestamp() : new Date();
+			final String signerDescription = "signer '" + signerCertificate.getSubjectX500Principal().getName() + "'";
+
 			if (isTrustAnchorCertificate(signerCertificate, trustAnchors)) {
 				// The signer certificate itself is trusted directly
-				signerCertificate.checkValidity();
-				return true;
+				try {
+					signerCertificate.checkValidity(validationDate);
+				} catch (final Exception e) {
+					return signerDescription + " certificate is not valid at " + validationDate + ": " + e.getMessage();
+				}
+				return null;
 			}
 
 			// A trust anchor itself must not be part of the validated path
@@ -1234,10 +1261,16 @@ public class ApplicationUpdateUtilities {
 			// (CRL/OCSP endpoints) during update verification, which may not be available in all deployment
 			// environments. The validity periods of the certificates are checked by the validator.
 			params.setRevocationEnabled(false);
-			CertPathValidator.getInstance("PKIX").validate(pathToValidate, params);
-			return true;
-		} catch (@SuppressWarnings("unused") final Exception e) {
-			return false;
+			params.setDate(validationDate);
+			try {
+				CertPathValidator.getInstance("PKIX").validate(pathToValidate, params);
+			} catch (final CertPathValidatorException e) {
+				return signerDescription + " (certificate path of " + pathCertificates.size() + " certificate(s), issuer of the last one: '"
+						+ ((X509Certificate) pathCertificates.get(pathCertificates.size() - 1)).getIssuerX500Principal().getName() + "') is not trusted: " + e.getMessage();
+			}
+			return null;
+		} catch (final Exception e) {
+			return e.getClass().getSimpleName() + ": " + e.getMessage();
 		}
 	}
 
