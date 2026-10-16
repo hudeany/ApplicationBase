@@ -12,7 +12,7 @@
 	<property name="proxyautoconfig.version" value="26.1.4" />
 	<property name="soderer-console.version" value="26.0.5" />
 	<property name="soderer-swing.version" value="26.0.4" />
-	<property name="soderer-utilities.version" value="26.2.109" />
+	<property name="soderer-utilities.version" value="26.2.110" />
 
 	<!-- Special: AntBuildHelp is used to download the runtime libraries -->
 	<property name="antbuildhelp.version" value="26.0.10" />
