@@ -270,7 +270,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 					// No enum definition in the configuration: offer the languages known to the application
 					availableLanguagesDropDown = createDropDown(key, availableLanguages, value);
 					valuesPanel.add(availableLanguagesDropDown, createValueConstraints(row, 1, 2));
-				} else if (ConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE.equalsIgnoreCase(key)) {
+				} else if (ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE.equalsIgnoreCase(key)) {
 					valuesPanel.add(createDropDown(key, DEFAULT_PROXY_CONFIGURATION_TYPES, value), createValueConstraints(row, 1, 2));
 				} else if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
 					final JCheckBox checkBox = new JCheckBox();
@@ -424,7 +424,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 				lastLanguageValue = newValue;
 				JOptionPane.showMessageDialog(this, LangResources.get("languageChangeRequiresRestart"), applicationName + " " + LangResources.get("configuration"), JOptionPane.INFORMATION_MESSAGE);
 			}
-		} else if (ConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE.equalsIgnoreCase(key)) {
+		} else if (ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE.equalsIgnoreCase(key)) {
 			updateProxyUrlEnabledStatus();
 		}
 	}
@@ -433,8 +433,8 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * The proxy URL is only relevant for the proxy types that use it.
 	 */
 	private void updateProxyUrlEnabledStatus() {
-		final JComponent proxyUrlComponent = valueComponents.get(ConfigurationProperties.CONFIG_KEY_PROXY_URL);
-		if (proxyUrlComponent != null && valueComponents.containsKey(ConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE)) {
+		final JComponent proxyUrlComponent = valueComponents.get(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_URL);
+		if (proxyUrlComponent != null && valueComponents.containsKey(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE)) {
 			final String proxyType = getProxyConfigurationType() == null ? "" : getProxyConfigurationType().replaceAll("[^A-Za-z]", "").toLowerCase(Locale.ROOT);
 			proxyUrlComponent.setEnabled(!"none".equals(proxyType) && !"system".equals(proxyType) && !"wpad".equals(proxyType));
 		}
@@ -1000,7 +1000,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 *         null
 	 */
 	public String getProxyConfigurationType() {
-		return getCurrentValue(ConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE);
+		return getCurrentValue(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE);
 	}
 
 	/**
@@ -1010,7 +1010,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * @param proxyConfigurationType proxy configuration type
 	 */
 	public void setProxyConfigurationType(final String proxyConfigurationType) {
-		setCurrentValue(ConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE, proxyConfigurationType);
+		setCurrentValue(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE, proxyConfigurationType);
 	}
 
 	/**
@@ -1019,7 +1019,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * @return proxy URL, may be null
 	 */
 	public String getProxyUrl() {
-		return getCurrentValue(ConfigurationProperties.CONFIG_KEY_PROXY_URL);
+		return getCurrentValue(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_URL);
 	}
 
 	/**
@@ -1029,7 +1029,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * @param proxyUrl proxy URL
 	 */
 	public void setProxyUrl(final String proxyUrl) {
-		setCurrentValue(ConfigurationProperties.CONFIG_KEY_PROXY_URL, proxyUrl);
+		setCurrentValue(ApplicationConfigurationProperties.CONFIG_KEY_PROXY_URL, proxyUrl);
 	}
 
 	/**
