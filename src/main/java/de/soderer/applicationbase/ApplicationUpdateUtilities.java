@@ -77,6 +77,10 @@ import de.soderer.utilities.xml.XmlUtilities;
  * GitHub ("api.github.com"), any other http(s) URL providing the JSON index format, and local "file://" JSON
  * files. A downloaded update is only installed if its jar signature is trusted by one of the given CA
  * certificates, unless unsafe updates are explicitly allowed (only for https and local update files).
+ * <p>
+ * An update is refused while the application jar is used by another running process, e.g. the application started
+ * a second time in another window (see {@link ApplicationInstanceDetector}), because the jar file cannot be replaced
+ * then (Windows) or the other instance would fail when loading classes from the replaced jar (Linux, macOS).
  */
 public class ApplicationUpdateUtilities {
 	/**
@@ -469,6 +473,10 @@ public class ApplicationUpdateUtilities {
 	private static boolean updateApplication(final ApplicationUpdateParent updateParent, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final String trustedCaCertificateFileNames, final String username, final char[] password, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate, final boolean allowUnsafeUpdates) {
 		try {
 			return installUpdate(updateParent, updateParent == null ? null : updateParent.getClass(), updateFileLocation, proxyConfiguration, trustedCaCertificateFileNames, username, password, jvmParameters, appParameters, restartAfterUpdate, allowUnsafeUpdates);
+		} catch (final UserError e) {
+			// An expected situation like an application file in use, the message tells the user what to do
+			showUpdateError(updateParent, e.getMessage());
+			return false;
 		} catch (final Exception e) {
 			if (updateParent != null) {
 				// Without updateParent showUpdateError() itself writes to System.err, the message must not appear twice
@@ -521,6 +529,8 @@ public class ApplicationUpdateUtilities {
 		checkUpdateSourceIsAllowed(updateFileLocation, trustedCaCertificateFileNames, allowUnsafeUpdates);
 
 		final String jarFilePath = findRunningJarFilePath(applicationClass);
+		// Checked before the download, so the user does not wait for a download which cannot be installed
+		checkApplicationNotInUseByOtherProcesses(jarFilePath);
 		final File downloadTempFile = new File(new File(jarFilePath).getParentFile(), DOWNLOAD_TEMP_FILE_PREFIX + new File(jarFilePath).getName());
 
 		boolean handedOverToUpdater = false;
@@ -536,6 +546,9 @@ public class ApplicationUpdateUtilities {
 			}
 
 			verifyUpdateFile(downloadTempFile, trustedCaCertificateFileNames, getApplicationClassLoader(applicationClass));
+
+			// Checked again, another instance may have been started during the download
+			checkApplicationNotInUseByOtherProcesses(jarFilePath);
 
 			final String[] updaterCommand = createUpdaterCommand(jarFilePath, downloadTempFile, jvmParameters, appParameters, restartAfterUpdate);
 
@@ -567,6 +580,27 @@ public class ApplicationUpdateUtilities {
 			throw new Exception("Trusted CA certificate file name is missing");
 		} else if (updateFileLocation.trim().toLowerCase(Locale.ROOT).startsWith("http://")) {
 			throw new Exception("Updates without signature check are only allowed via https or from local files");
+		}
+	}
+
+	/**
+	 * Refuses the update, while the application jar is used by other running processes, e.g. by the application
+	 * started a second time in another window. Updater and restarter processes of the application are not counted.
+	 *
+	 * @throws UserError with the ids of the other processes and a hint to close them
+	 */
+	private static void checkApplicationNotInUseByOtherProcesses(final String jarFilePath) throws UserError {
+		final List<Long> otherProcessIds = ApplicationInstanceDetector.getOtherProcessesUsingJarFile(jarFilePath, UPDATER_FILE_PREFIX, RESTARTER_FILE_PREFIX);
+		if (!otherProcessIds.isEmpty()) {
+			final String jarFileName = new File(jarFilePath).getName();
+			final String processIdsText = Utilities.join(otherProcessIds, ", ");
+			if (LangResources.existsKey("updateErrorApplicationInUse")) {
+				throw new UserError(LangResources.get("updateErrorApplicationInUse", jarFileName, processIdsText));
+			} else {
+				throw new UserError("The application file '" + jarFileName + "' is still in use by another running instance of the application (process id " + processIdsText + "), e.g. in another window."
+						+ "\nThe update cannot be installed while the application file is in use."
+						+ "\nPlease close all other windows of the application and start the update again.");
+			}
 		}
 	}
 
