@@ -7,11 +7,11 @@
 
 	<!-- Dependency versions -->
 	<property name="csv.version" value="26.1.10" />
-	<property name="json.version" value="26.2.9" />
-	<property name="network.version" value="26.0.37" />
+	<property name="json.version" value="26.2.10" />
+	<property name="network.version" value="26.0.38" />
 	<property name="proxyautoconfig.version" value="26.1.4" />
 	<property name="soderer-console.version" value="26.0.6" />
-	<property name="soderer-swing.version" value="26.0.5" />
+	<property name="soderer-swing.version" value="26.0.6" />
 	<property name="soderer-utilities.version" value="26.2.111" />
 
 	<!-- Special: AntBuildHelp is used to download the runtime libraries -->
