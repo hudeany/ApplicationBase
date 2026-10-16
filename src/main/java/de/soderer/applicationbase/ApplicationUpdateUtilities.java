@@ -563,7 +563,7 @@ public class ApplicationUpdateUtilities {
 		} finally {
 			if (!handedOverToUpdater) {
 				// A canceled, failed or untrusted download must not stay next to the application jar
-				//deleteQuietly(downloadTempFile);
+				deleteQuietly(downloadTempFile);
 			}
 		}
 
