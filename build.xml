@@ -6,16 +6,16 @@
 	<property name="artifactId" value="soderer-applicationbase" />
 
 	<!-- Dependency versions -->
-	<property name="csv.version" value="26.1.10" />
-	<property name="json.version" value="26.2.10" />
-	<property name="network.version" value="26.0.38" />
-	<property name="proxyautoconfig.version" value="26.1.4" />
-	<property name="soderer-console.version" value="26.0.7" />
-	<property name="soderer-swing.version" value="26.0.7" />
-	<property name="soderer-utilities.version" value="26.2.112" />
+	<property name="csv.version" value="26.1.11" />
+	<property name="json.version" value="26.2.11" />
+	<property name="network.version" value="26.0.39" />
+	<property name="proxyautoconfig.version" value="26.1.5" />
+	<property name="soderer-console.version" value="26.0.8" />
+	<property name="soderer-swing.version" value="26.0.8" />
+	<property name="soderer-utilities.version" value="26.2.113" />
 
 	<!-- Special: AntBuildHelp is used to download the runtime libraries -->
-	<property name="antbuildhelp.version" value="26.0.11" />
+	<property name="antbuildhelp.version" value="26.0.12" />
 
 	<available file="lib_build/antbuildhelp-${antbuildhelp.version}.jar" property="antbuildhelp.available" />
 	<target name="get_antbuildhelp" unless="antbuildhelp.available">
