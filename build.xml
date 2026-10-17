@@ -13,6 +13,15 @@
 	<property name="soderer-console.version" value="26.0.7" />
 	<property name="soderer-swing.version" value="26.0.7" />
 	<property name="soderer-utilities.version" value="26.2.112" />
+	
+	<!-- Maven POM dependencies: "groupId:artifactId:version[:optional]" -->
+	<property name="mavenDependency.csv" value="de.soderer:csv:${csv.version}" />
+	<property name="mavenDependency.json" value="de.soderer:json:${json.version}" />
+	<property name="mavenDependency.network" value="de.soderer:network:${network.version}" />
+	<property name="mavenDependency.proxyautoconfig" value="de.soderer:proxyautoconfig:${proxyautoconfig.version}" />
+	<property name="mavenDependency.soderer-console" value="de.soderer:soderer-console:${soderer-console.version}:optional" />
+	<property name="mavenDependency.soderer-swing" value="de.soderer:soderer-swing:${soderer-swing.version}:optional" />
+	<property name="mavenDependency.soderer-utilities" value="de.soderer:soderer-utilities:${soderer-utilities.version}" />
 
 	<!-- Special: AntBuildHelp is used to download the runtime libraries -->
 	<property name="antbuildhelp.version" value="26.0.11" />
