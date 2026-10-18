@@ -224,7 +224,8 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		setResizable(true);
 		pack();
 		setMinimumSize(new Dimension(500, 300));
-		setSize(Math.max(500, getWidth()), Math.max(300, Math.min(getHeight(), MAX_INITIAL_HEIGHT)));
+		// Extra width for the vertical scrollbar, which appears when the height is limited and would otherwise hide the help buttons
+		setSize(Math.max(500, getWidth() + 20), Math.max(300, Math.min(getHeight(), MAX_INITIAL_HEIGHT)));
 		setLocationRelativeTo(updateParent);
 	}
 
