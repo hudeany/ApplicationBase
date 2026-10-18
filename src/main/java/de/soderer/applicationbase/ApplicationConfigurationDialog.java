@@ -10,6 +10,8 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.LayoutManager;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -42,7 +44,9 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import javax.swing.Scrollable;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
@@ -224,8 +228,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		setResizable(true);
 		pack();
 		setMinimumSize(new Dimension(500, 300));
-		// Extra width for the vertical scrollbar, which appears when the height is limited and would otherwise hide the help buttons
-		setSize(Math.max(500, getWidth() + 20), Math.max(300, Math.min(getHeight(), MAX_INITIAL_HEIGHT)));
+		setSize(Math.max(500, getWidth()), Math.max(300, Math.min(getHeight(), MAX_INITIAL_HEIGHT)));
 		setLocationRelativeTo(updateParent);
 	}
 
@@ -234,7 +237,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * aligned in the first column (like the SWT variant).
 	 */
 	private JPanel createConfigurationValuesPanel() {
-		final JPanel valuesPanel = new JPanel(new GridBagLayout());
+		final JPanel valuesPanel = new ViewportWidthPanel(new GridBagLayout());
 
 		int row = 0;
 
@@ -1087,5 +1090,44 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	public ApplicationConfigurationDialog withAvailableLanguages(final List<String> availableLanguagesValue) {
 		setAvailableLanguages(availableLanguagesValue);
 		return this;
+	}
+
+	/**
+	 * Panel that always takes the width of the scroll pane's viewport, so the
+	 * value fields shrink instead of the help buttons being cut off by the
+	 * vertical scrollbar.
+	 */
+	private static class ViewportWidthPanel extends JPanel implements Scrollable {
+		private static final long serialVersionUID = 1L;
+
+		ViewportWidthPanel(final LayoutManager layout) {
+			super(layout);
+		}
+
+		@Override
+		public Dimension getPreferredScrollableViewportSize() {
+			return getPreferredSize();
+		}
+
+		@Override
+		public int getScrollableUnitIncrement(final Rectangle visibleRect, final int orientation, final int direction) {
+			return 16;
+		}
+
+		@Override
+		public int getScrollableBlockIncrement(final Rectangle visibleRect, final int orientation, final int direction) {
+			return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportWidth() {
+			return true;
+		}
+
+		@Override
+		public boolean getScrollableTracksViewportHeight() {
+			// Fill the viewport if the content is lower, scroll if it is higher
+			return getParent() != null && getParent().getHeight() > getPreferredSize().height;
+		}
 	}
 }
