@@ -11,8 +11,8 @@
 	<property name="network.version" value="26.0.39" />
 	<property name="proxyautoconfig.version" value="26.1.5" />
 	<property name="soderer-console.version" value="26.0.9" />
-	<property name="soderer-swing.version" value="26.0.9" />
-	<property name="soderer-utilities.version" value="26.2.113" />
+	<property name="soderer-swing.version" value="26.0.10" />
+	<property name="soderer-utilities.version" value="26.2.114" />
 	
 	<!-- Maven POM dependencies: "groupId:artifactId:version[:optional]" -->
 	<property name="mavenDependency.csv" value="de.soderer:csv:${csv.version}" />
