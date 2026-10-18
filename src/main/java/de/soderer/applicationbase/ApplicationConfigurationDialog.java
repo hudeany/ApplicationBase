@@ -63,6 +63,7 @@ import de.soderer.utilities.Result;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Utilities;
 import de.soderer.utilities.Version;
+import de.soderer.utilities.YesNoAsk;
 
 /**
  * Configuration dialog of an application.
@@ -70,9 +71,10 @@ import de.soderer.utilities.Version;
  * <p>
  * Shows every configuration value of the application (like the SWT variant):
  * values with a "maxsize" companion key get a spinner plus text field, values
- * with an "enum" companion key get a combo box, "true"/"false" values get a
- * checkbox and everything else a text field. Values with a "conf.KEY.help"
- * language resource get a help button.
+ * with an "enum" companion key get a combo box, values registered as
+ * {@link YesNoAsk} get a combo box with yes / no / ask, "true"/"false" values
+ * get a checkbox and everything else a text field. Values with a
+ * "conf.KEY.help" language resource get a help button.
  * </p>
  *
  * <p>
@@ -88,6 +90,9 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	private static final String DEFAULT_LANGUAGE_CODE = "en";
 
 	private static final List<String> DEFAULT_PROXY_CONFIGURATION_TYPES = Utilities.getList("None", "System", "Proxy-URL", "WPAD", "PAC-URL");
+
+	/** Stored values of a YesNoAsk configuration value, in display order */
+	private static final List<String> YES_NO_ASK_OPTIONS = Utilities.getList(YesNoAsk.YES.getStorageValue(), YesNoAsk.NO.getStorageValue(), YesNoAsk.ASK.getStorageValue());
 
 	private static final int MAX_INITIAL_HEIGHT = 600;
 
@@ -272,6 +277,10 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 					valuesPanel.add(availableLanguagesDropDown, createValueConstraints(row, 1, 2));
 				} else if (ApplicationConfigurationProperties.CONFIG_KEY_PROXY_CONFIGURATION_TYPE.equalsIgnoreCase(key)) {
 					valuesPanel.add(createDropDown(key, DEFAULT_PROXY_CONFIGURATION_TYPES, value), createValueConstraints(row, 1, 2));
+				} else if (applicationConfiguration.isYesNoAskKey(key)) {
+					// Must be checked before the checkbox, because YesNoAsk values may also be "true" / "false".
+					// Legacy or manually edited values ("yes", "1", ...) are normalized to the stored values of the options.
+					valuesPanel.add(createDropDown(key, YES_NO_ASK_OPTIONS, YesNoAsk.fromString(value, YesNoAsk.NO).getStorageValue()), createValueConstraints(row, 1, 2));
 				} else if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
 					final JCheckBox checkBox = new JCheckBox();
 					checkBox.setSelected(Utilities.interpretAsBool(value));
@@ -442,12 +451,18 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 
 	/**
 	 * Text shown in a drop down for a stored value: "None" in the user's
-	 * language, language codes with their name (e.g. "Deutsch (de)") if a
+	 * language, yes / no / ask in the user's language for {@link YesNoAsk}
+	 * values, language codes with their name (e.g. "Deutsch (de)") if a
 	 * language resource exists for the code, otherwise the value itself.
 	 */
-	private static String toDisplayValue(final String key, final String value) {
+	private String toDisplayValue(final String key, final String value) {
 		if ("None".equalsIgnoreCase(value)) {
 			return LangResources.get("None");
+		} else if (applicationConfiguration.isYesNoAskKey(key)) {
+			// Stored as "true" / "false" / "ask", shown in the user's language
+			final YesNoAsk yesNoAsk = YesNoAsk.fromString(value, YesNoAsk.NO);
+			final String languageKey = yesNoAsk == YesNoAsk.YES ? "yes" : yesNoAsk == YesNoAsk.NO ? "no" : "askEachTime";
+			return LangResources.existsKey(languageKey) && Utilities.isNotBlank(LangResources.get(languageKey)) ? LangResources.get(languageKey) : value;
 		} else if (ConfigurationProperties.CONFIG_KEY_LANGUAGE.equalsIgnoreCase(key) && Utilities.isNotBlank(value) && LangResources.existsKey(value) && Utilities.isNotBlank(LangResources.get(value))) {
 			return LangResources.get(value) + " (" + value + ")";
 		} else {
