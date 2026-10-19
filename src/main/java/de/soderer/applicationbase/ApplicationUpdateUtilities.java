@@ -1102,7 +1102,7 @@ public class ApplicationUpdateUtilities {
 	}
 
 	private static boolean downloadUpdateFile(final ApplicationUpdateParent updateParent, final File downloadTempFile, final String downloadUrl, final ProxyConfiguration proxyConfiguration) throws Exception {
-		final FileDownloadWorker fileDownloadWorker = new FileDownloadWorker(createWorkerParentAdapter(updateParent), downloadUrl, downloadTempFile).withProxy(proxyConfiguration.getProxy(downloadUrl));
+		final FileDownloadWorker fileDownloadWorker = new FileDownloadWorker(createWorkerParentAdapter(updateParent), downloadUrl, downloadTempFile).withProxy(getProxy(proxyConfiguration, downloadUrl));
 		return runWorker(updateParent, fileDownloadWorker);
 	}
 
