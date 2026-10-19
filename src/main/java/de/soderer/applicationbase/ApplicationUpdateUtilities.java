@@ -632,12 +632,13 @@ public class ApplicationUpdateUtilities {
 			}
 		}
 
-		jarFilePath = Utilities.replaceUsersHome(jarFilePath);
-
-		if (jarFilePath == null || !new File(jarFilePath).exists()) {
+		if (jarFilePath == null || !new File(jarFilePath).isFile()) {
 			throw new Exception("Current running jar file was not found");
 		}
-		return jarFilePath;
+
+		// Always an absolute path: it is passed to the instance detector, the updater process and the fallback
+		// shell script, none of which expand "~" (the shell script quotes it in single quotes)
+		return new File(jarFilePath).getAbsolutePath();
 	}
 
 	/**
