@@ -11,9 +11,11 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -61,15 +63,41 @@ public final class ApplicationInstanceDetector {
 			return processIds;
 		}
 
-		final long ownProcessId = ProcessHandle.current().pid();
+		final Set<Long> ownProcessFamilyIds = getOwnProcessFamilyIds();
 		for (final ProcessCommandLine process : getProcessCommandLines()) {
-			if (process.processId != ownProcessId
+			if (!ownProcessFamilyIds.contains(process.processId)
 					&& !containsIgnoredJarFile(process.arguments, ignoredJarFileNamePrefixes)
 					&& usesJarFile(process.arguments, process.workingDirectory, jarFile)) {
 				processIds.add(process.processId);
 			}
 		}
 		return processIds;
+	}
+
+	/**
+	 * Ids of the current process, all its ancestors and all its descendants.
+	 * <p>
+	 * Ancestors often contain the jar path in their command line without being another instance of the application,
+	 * e.g. "sudo java -jar App.jar" (sudo and its pty child process), a start script without "exec"
+	 * ("sh App.sh" running "java -jar App.jar") or "sh -c" wrappers of nohup, screen, cron or systemd.
+	 * Descendants are child processes started by this instance.
+	 * </p>
+	 *
+	 * @return ids of the own process family
+	 */
+	private static Set<Long> getOwnProcessFamilyIds() {
+		final Set<Long> ownProcessFamilyIds = new HashSet<>();
+		final ProcessHandle currentProcess = ProcessHandle.current();
+		ownProcessFamilyIds.add(currentProcess.pid());
+
+		Optional<ProcessHandle> ancestor = currentProcess.parent();
+		while (ancestor.isPresent() && ownProcessFamilyIds.add(ancestor.get().pid())) {
+			// add() returning false stops on a (theoretically possible) cycle caused by pid reuse
+			ancestor = ancestor.get().parent();
+		}
+
+		currentProcess.descendants().forEach(descendant -> ownProcessFamilyIds.add(descendant.pid()));
+		return ownProcessFamilyIds;
 	}
 
 	/**
