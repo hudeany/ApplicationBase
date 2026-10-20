@@ -75,14 +75,14 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	 * Asks the user on the console for username and/or password.
 	 *
 	 * @param text text explaining what the credentials are needed for (not shown on the console)
-	 * @param aquireUsername whether a username is requested
-	 * @param aquirePassword whether a password is requested
+	 * @param acquireUsername whether a username is requested
+	 * @param acquirePassword whether a password is requested
 	 * @param firstRequest true for the first request
 	 * @return the entered credentials, or null if nothing was entered
 	 * @throws Exception if no console is available
 	 */
 	@Override
-	public Credentials acquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
+	public Credentials acquireCredentials(final String text, final boolean acquireUsername, final boolean acquirePassword, final boolean firstRequest) throws Exception {
 		final Console console = System.console();
 		if (console == null) {
 			throw new Exception("Couldn't get Console instance");
@@ -91,12 +91,12 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 		String userName = null;
 		char[] password = null;
 
-		if (aquireUsername && aquirePassword) {
+		if (acquireUsername && acquirePassword) {
 			userName = new SimpleConsoleInput().withPrompt(LangResources.get("enterUsername") + ": ").readInput();
 			password = new PasswordConsoleInput().withPrompt(LangResources.get("enterPassword") + ": ").readInput();
-		} else if (aquireUsername) {
+		} else if (acquireUsername) {
 			userName = new SimpleConsoleInput().withPrompt(LangResources.get("enterUsername") + ": ").readInput();
-		} else if (aquirePassword) {
+		} else if (acquirePassword) {
 			password = new PasswordConsoleInput().withPrompt(LangResources.get("enterPassword") + ": ").readInput();
 		}
 

@@ -58,7 +58,7 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 	}
 
 	@Override
-	public Credentials acquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
+	public Credentials acquireCredentials(final String text, final boolean acquireUsername, final boolean acquirePassword, final boolean firstRequest) throws Exception {
 		Credentials downloadCredentials = null;
 
 		if (firstRequest && keystoreExists()) {
@@ -66,7 +66,7 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 		}
 
 		if (downloadCredentials == null) {
-			final CredentialsDialog downloadCredentialsDialog = new CredentialsDialog(this, "Update " + applicationName, text, aquireUsername, aquirePassword);
+			final CredentialsDialog downloadCredentialsDialog = new CredentialsDialog(this, "Update " + applicationName, text, acquireUsername, acquirePassword);
 			downloadCredentialsDialog.setRememberCredentialsText(LangResources.get("rememberUpdateCredentials"));
 			downloadCredentials = downloadCredentialsDialog.open();
 
