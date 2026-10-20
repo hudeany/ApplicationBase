@@ -58,7 +58,7 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 	}
 
 	@Override
-	public Credentials aquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
+	public Credentials acquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
 		Credentials downloadCredentials = null;
 
 		if (firstRequest && keystoreExists()) {

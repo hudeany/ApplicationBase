@@ -725,7 +725,7 @@ public class ApplicationUpdateUtilities {
 				}
 
 				if (downloadUrlWithCredentials.contains("<username>") && downloadUrlWithCredentials.contains("<password>")) {
-					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadCredentials"), true, true, firstRequest);
+					final Credentials credentials = updateParent.acquireCredentials(LangResources.get("enterDownloadCredentials"), true, true, firstRequest);
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
@@ -737,7 +737,7 @@ public class ApplicationUpdateUtilities {
 						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<password>", HttpUtilities.urlEncode(new String(credentials.getPassword()), StandardCharsets.UTF_8));
 					}
 				} else if (downloadUrlWithCredentials.contains("<username>")) {
-					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadUsername"), true, false, firstRequest);
+					final Credentials credentials = updateParent.acquireCredentials(LangResources.get("enterDownloadUsername"), true, false, firstRequest);
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
@@ -748,7 +748,7 @@ public class ApplicationUpdateUtilities {
 						downloadUrlWithCredentials = downloadUrlWithCredentials.replace("<username>", HttpUtilities.urlEncode(credentials.getUsername(), StandardCharsets.UTF_8));
 					}
 				} else if (downloadUrlWithCredentials.contains("<password>")) {
-					final Credentials credentials = updateParent.aquireCredentials(LangResources.get("enterDownloadPassword"), false, true, firstRequest);
+					final Credentials credentials = updateParent.acquireCredentials(LangResources.get("enterDownloadPassword"), false, true, firstRequest);
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;

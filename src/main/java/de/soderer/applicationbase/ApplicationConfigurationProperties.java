@@ -51,7 +51,7 @@ public class ApplicationConfigurationProperties extends ConfigurationProperties 
 	 * @param value value, null is stored as empty string
 	 */
 	@Override
-	public void set(final String name, final String value) {
+	public synchronized void set(final String name, final String value) {
 		super.set(name, value);
 		resetProxyConfigurationIfAffected(name);
 	}
@@ -62,7 +62,7 @@ public class ApplicationConfigurationProperties extends ConfigurationProperties 
 	 * @param name configuration key
 	 */
 	@Override
-	public void removeKey(final String name) {
+	public synchronized void removeKey(final String name) {
 		super.removeKey(name);
 		resetProxyConfigurationIfAffected(name);
 	}
@@ -78,7 +78,7 @@ public class ApplicationConfigurationProperties extends ConfigurationProperties 
 	 * check, and migrates or removes obsolete keys. May save the configuration.
 	 */
 	@Override
-	public void setupDefaultConfig() {
+	public synchronized void setupDefaultConfig() {
 		super.setupDefaultConfig();
 
 		set(CONFIG_KEY_PROXY_CONFIGURATION_TYPE + ENUM_EXTENSION, "None,System,Proxy-URL,WPAD,PAC-URL");
@@ -117,10 +117,11 @@ public class ApplicationConfigurationProperties extends ConfigurationProperties 
 
 	/**
 	 * Proxy configuration of the configured type and URL, cached until one of these keys changes.
+	 * Synchronized like the setters, so a reset of the cache by another thread is always seen.
 	 *
 	 * @return proxy configuration
 	 */
-	public ProxyConfiguration getProxyConfiguration() {
+	public synchronized ProxyConfiguration getProxyConfiguration() {
 		if (proxyConfiguration == null) {
 			final ProxyConfigurationType proxyConfigurationType = ProxyConfigurationType.getFromString(get(CONFIG_KEY_PROXY_CONFIGURATION_TYPE));
 			final String proxyUrl = get(CONFIG_KEY_PROXY_URL);

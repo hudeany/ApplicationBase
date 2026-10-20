@@ -82,7 +82,7 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	 * @throws Exception if no console is available
 	 */
 	@Override
-	public Credentials aquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
+	public Credentials acquireCredentials(final String text, final boolean aquireUsername, final boolean aquirePassword, final boolean firstRequest) throws Exception {
 		final Console console = System.console();
 		if (console == null) {
 			throw new Exception("Couldn't get Console instance");
