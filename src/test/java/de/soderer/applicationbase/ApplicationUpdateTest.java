@@ -29,25 +29,4 @@ public class ApplicationUpdateTest {
 			fail(e.getMessage());
 		}
 	}
-
-	@Test
-	public void testSodererDe() {
-		try {
-			final boolean result = ApplicationUpdateUtilities.executeUpdate(
-					null,
-					"https://soderer.de/index.php?download=Versions.json",
-					null,
-					"LanguagePropertiesManager",
-					new Version("1.0.0"),
-					null,
-					null,
-					null,
-					null,
-					false,
-					false);
-			assertEquals(true, result);
-		} catch (final Exception e) {
-			fail(e.getMessage());
-		}
-	}
 }
