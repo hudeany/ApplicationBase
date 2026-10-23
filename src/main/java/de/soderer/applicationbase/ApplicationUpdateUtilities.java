@@ -51,6 +51,7 @@ import de.soderer.network.NetworkUtilities;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
+import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Tuple;
 import de.soderer.utilities.UserError;
@@ -150,7 +151,7 @@ public class ApplicationUpdateUtilities {
 			final boolean restartAfterUpdate,
 			final boolean allowUnsafeUpdates) throws Exception {
 		try {
-			if (Utilities.isEmpty(versionIndexFileLocation)) {
+			if (StringUtilities.isEmpty(versionIndexFileLocation)) {
 				throw new Exception("Invalid version index location");
 			}
 
@@ -194,7 +195,7 @@ public class ApplicationUpdateUtilities {
 	 * @throws Exception if the version index is not reachable or invalid
 	 */
 	public static Tuple<Version, String> checkForNewVersionAvailable(final String versionIndexFileLocation, final ProxyConfiguration proxyConfiguration, final String applicationName, final Version applicationVersion) throws Exception {
-		if (Utilities.isEmpty(versionIndexFileLocation)) {
+		if (StringUtilities.isEmpty(versionIndexFileLocation)) {
 			throw new Exception("Invalid version index location");
 		}
 
@@ -316,12 +317,12 @@ public class ApplicationUpdateUtilities {
 
 		Version availableVersion = null;
 		final Node versionNode = startFileNameNode.getAttributes().getNamedItem("version");
-		if (versionNode != null && Utilities.isNotBlank(versionNode.getNodeValue())) {
+		if (versionNode != null && StringUtilities.isNotBlank(versionNode.getNodeValue())) {
 			availableVersion = new Version(versionNode.getNodeValue());
 		}
 
 		String updateFileLocation = null;
-		if (startFileNameNode.getFirstChild() != null && Utilities.isNotBlank(startFileNameNode.getFirstChild().getNodeValue())) {
+		if (startFileNameNode.getFirstChild() != null && StringUtilities.isNotBlank(startFileNameNode.getFirstChild().getNodeValue())) {
 			updateFileLocation = startFileNameNode.getFirstChild().getNodeValue();
 		}
 
@@ -341,12 +342,12 @@ public class ApplicationUpdateUtilities {
 			final JsonObject jsonObject = (JsonObject) jsonNode;
 			final Object releaseName = jsonObject.getSimpleValue("name");
 			// The release name is optional on GitHub, it is only checked if it is set
-			if (releaseName != null && Utilities.isNotBlank(releaseName.toString()) && !releaseName.toString().trim().startsWith(applicationName)) {
+			if (releaseName != null && StringUtilities.isNotBlank(releaseName.toString()) && !releaseName.toString().trim().startsWith(applicationName)) {
 				throw new Exception("Invalid github release data found for application '" + applicationName + "' was '" + releaseName + "'");
 			}
 
 			final Object tagName = jsonObject.getSimpleValue("tag_name");
-			if (tagName == null || Utilities.isBlank(tagName.toString())) {
+			if (tagName == null || StringUtilities.isBlank(tagName.toString())) {
 				throw new Exception("Github release for application '" + applicationName + "' has no tag name");
 			}
 			final Version availableVersion = new Version(tagName.toString());
@@ -440,7 +441,7 @@ public class ApplicationUpdateUtilities {
 
 	private static String getJavaBinPath() {
 		final String javaBinPath = SystemUtilities.getJavaBinPath();
-		if (Utilities.isNotBlank(javaBinPath)) {
+		if (StringUtilities.isNotBlank(javaBinPath)) {
 			return javaBinPath;
 		} else if (SystemUtilities.isWindowsSystem()) {
 			return "java.exe";
@@ -523,7 +524,7 @@ public class ApplicationUpdateUtilities {
 	 * @return false if the download was canceled or failed with an error already shown to the user
 	 */
 	private static boolean installUpdate(final ApplicationUpdateParent updateParent, final Class<?> applicationClass, final String updateFileLocation, final ProxyConfiguration proxyConfiguration, final String trustedCaCertificateFileNames, final String username, final char[] password, final List<String> jvmParameters, final List<String> appParameters, final boolean restartAfterUpdate, final boolean allowUnsafeUpdates) throws Exception {
-		if (Utilities.isBlank(updateFileLocation)) {
+		if (StringUtilities.isBlank(updateFileLocation)) {
 			throw new Exception("Mandatory updateFileLocation is empty");
 		}
 
@@ -576,7 +577,7 @@ public class ApplicationUpdateUtilities {
 	 * man-in-the-middle could inject code.
 	 */
 	private static void checkUpdateSourceIsAllowed(final String updateFileLocation, final String trustedCaCertificateFileNames, final boolean allowUnsafeUpdates) throws Exception {
-		if (Utilities.isNotEmpty(trustedCaCertificateFileNames)) {
+		if (StringUtilities.isNotEmpty(trustedCaCertificateFileNames)) {
 			return;
 		} else if (!allowUnsafeUpdates) {
 			throw new Exception("Trusted CA certificate file name is missing");
@@ -645,7 +646,7 @@ public class ApplicationUpdateUtilities {
 	 * Checks the jar signature of the update file, if trusted CA certificates are given.
 	 */
 	private static void verifyUpdateFile(final File updateFile, final String trustedCaCertificateFileNames, final ClassLoader applicationClassLoader) throws Exception {
-		if (Utilities.isEmpty(trustedCaCertificateFileNames)) {
+		if (StringUtilities.isEmpty(trustedCaCertificateFileNames)) {
 			// Unsafe updates were explicitly allowed, see checkUpdateSourceIsAllowed()
 			return;
 		}
@@ -729,7 +730,7 @@ public class ApplicationUpdateUtilities {
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
-					} else if (Utilities.isEmpty(credentials.getUsername()) || Utilities.isEmpty(credentials.getPassword())) {
+					} else if (StringUtilities.isEmpty(credentials.getUsername()) || StringUtilities.isEmpty(credentials.getPassword())) {
 						updateParent.showUpdateError(LangResources.get("usernameAndPasswordRequired"));
 						return false;
 					} else {
@@ -741,7 +742,7 @@ public class ApplicationUpdateUtilities {
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
-					} else if (Utilities.isEmpty(credentials.getUsername())) {
+					} else if (StringUtilities.isEmpty(credentials.getUsername())) {
 						updateParent.showUpdateError(LangResources.get("usernameRequired"));
 						return false;
 					} else {
@@ -752,7 +753,7 @@ public class ApplicationUpdateUtilities {
 					if (credentials == null) {
 						updateParent.showUpdateError(LangResources.get("canceledByUser"));
 						return false;
-					} else if (Utilities.isEmpty(credentials.getPassword())) {
+					} else if (StringUtilities.isEmpty(credentials.getPassword())) {
 						updateParent.showUpdateError(LangResources.get("passwordRequired"));
 						return false;
 					} else {
@@ -1290,7 +1291,7 @@ public class ApplicationUpdateUtilities {
 	 */
 	public static void removeUpdateLeftovers() {
 		final String jarFilePath = SystemUtilities.getCurrentlyRunningJarFilePath();
-		if (Utilities.isNotBlank(jarFilePath)) {
+		if (StringUtilities.isNotBlank(jarFilePath)) {
 			final File jarFile = new File(jarFilePath);
 			final File jarDirectory = jarFile.getAbsoluteFile().getParentFile();
 

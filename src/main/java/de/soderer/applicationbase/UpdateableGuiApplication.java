@@ -9,7 +9,7 @@ import de.soderer.swing.QuestionDialog;
 import de.soderer.swing.SwingColor;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
-import de.soderer.utilities.Utilities;
+import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.Version;
 import de.soderer.utilities.worker.WorkerSimple;
 
@@ -47,7 +47,7 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 	public UpdateableGuiApplication(final String applicationName, final Version applicationVersion, final File keystoreFile) throws Exception {
 		super(keystoreFile);
 
-		if (Utilities.isBlank(applicationName)) {
+		if (StringUtilities.isBlank(applicationName)) {
 			throw new Exception("Invalid empty applicationName");
 		} else if (applicationVersion == null) {
 			throw new Exception("Invalid empty applicationVersion");

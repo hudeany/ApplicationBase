@@ -11,7 +11,7 @@ import de.soderer.console.PasswordConsoleInput;
 import de.soderer.console.SimpleConsoleInput;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
-import de.soderer.utilities.Utilities;
+import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.Version;
 import de.soderer.utilities.worker.WorkerSimple;
 
@@ -32,7 +32,7 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	 * @throws IllegalArgumentException if applicationName is blank or applicationVersion is null
 	 */
 	public UpdateableConsoleApplication(final String applicationName, final Version applicationVersion) throws HeadlessException {
-		if (Utilities.isBlank(applicationName)) {
+		if (StringUtilities.isBlank(applicationName)) {
 			throw new IllegalArgumentException("Invalid empty applicationName");
 		} else if (applicationVersion == null) {
 			throw new IllegalArgumentException("Invalid empty applicationVersion");
@@ -100,7 +100,7 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 			password = new PasswordConsoleInput().withPrompt(LangResources.get("enterPassword") + ": ").readInput();
 		}
 
-		if (Utilities.isBlank(userName) && Utilities.isBlank(password)) {
+		if (StringUtilities.isBlank(userName) && StringUtilities.isBlank(password)) {
 			return null;
 		} else {
 			return new Credentials(userName, password);

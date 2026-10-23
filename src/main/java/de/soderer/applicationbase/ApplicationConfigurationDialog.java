@@ -64,6 +64,7 @@ import de.soderer.utilities.DateUtilities;
 import de.soderer.utilities.FileUtilities;
 import de.soderer.utilities.LangResources;
 import de.soderer.utilities.Result;
+import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Utilities;
 import de.soderer.utilities.Version;
@@ -257,7 +258,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 				}
 
 				String description = key;
-				if (LangResources.existsKey("conf." + key) && Utilities.isNotBlank(LangResources.get("conf." + key))) {
+				if (LangResources.existsKey("conf." + key) && StringUtilities.isNotBlank(LangResources.get("conf." + key))) {
 					description = LangResources.get("conf." + key);
 				}
 				addLabel(valuesPanel, row, description);
@@ -295,7 +296,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 					valuesPanel.add(createTextField(key, value), createValueConstraints(row, 1, 2));
 				}
 
-				if (LangResources.existsKey("conf." + key + ".help") && Utilities.isNotBlank(LangResources.get("conf." + key + ".help"))) {
+				if (LangResources.existsKey("conf." + key + ".help") && StringUtilities.isNotBlank(LangResources.get("conf." + key + ".help"))) {
 					valuesPanel.add(createHelpButton(LangResources.get("conf." + key + ".help")), createHelpButtonConstraints(row));
 				}
 
@@ -401,7 +402,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		}
 
 		String selectedValue = null;
-		if (Utilities.isBlank(value)) {
+		if (StringUtilities.isBlank(value)) {
 			if (!options.isEmpty()) {
 				selectedValue = options.get(0);
 			}
@@ -466,8 +467,8 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 			// Stored as "true" / "false" / "ask", shown in the user's language
 			final YesNoAsk yesNoAsk = YesNoAsk.fromString(value, YesNoAsk.NO);
 			final String languageKey = yesNoAsk == YesNoAsk.YES ? "yes" : yesNoAsk == YesNoAsk.NO ? "no" : "askEachTime";
-			return LangResources.existsKey(languageKey) && Utilities.isNotBlank(LangResources.get(languageKey)) ? LangResources.get(languageKey) : value;
-		} else if (ConfigurationProperties.CONFIG_KEY_LANGUAGE.equalsIgnoreCase(key) && Utilities.isNotBlank(value) && LangResources.existsKey(value) && Utilities.isNotBlank(LangResources.get(value))) {
+			return LangResources.existsKey(languageKey) && StringUtilities.isNotBlank(LangResources.get(languageKey)) ? LangResources.get(languageKey) : value;
+		} else if (ConfigurationProperties.CONFIG_KEY_LANGUAGE.equalsIgnoreCase(key) && StringUtilities.isNotBlank(value) && LangResources.existsKey(value) && StringUtilities.isNotBlank(LangResources.get(value))) {
 			return LangResources.get(value) + " (" + value + ")";
 		} else {
 			return value;
@@ -544,7 +545,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		showSwingPropertiesButton.addActionListener(e -> showProperties(LangResources.get("swingProperties"), getSwingProperties()));
 		buttons.add(showSwingPropertiesButton);
 
-		if (Utilities.isNotBlank(versioninfoDownloadURL)) {
+		if (StringUtilities.isNotBlank(versioninfoDownloadURL)) {
 			final JButton updateButton = new JButton(LangResources.get("checkUpdate"));
 			updateButton.addActionListener(e -> checkUpdate());
 			buttons.add(updateButton);
@@ -636,7 +637,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	private void checkUpdate() {
 		try {
 			// A configuration without proxy settings means a direct connection
-			final String proxyConfigurationType = Utilities.isBlank(getProxyConfigurationType()) ? "None" : getProxyConfigurationType();
+			final String proxyConfigurationType = StringUtilities.isBlank(getProxyConfigurationType()) ? "None" : getProxyConfigurationType();
 			ApplicationUpdateUtilities.executeUpdate(updateParent, versioninfoDownloadURL, new ProxyConfiguration(ProxyConfigurationType.getFromString(proxyConfigurationType), getProxyUrl()), applicationName, applicationVersion, trustedUpdateCaCertificates, null, null, appParameters, true, false);
 		} catch (final Exception e) {
 			new QuestionDialog(this, applicationName + " ERROR", "ERROR:\n" + e.getMessage()).withBackgroundColor(SwingColor.LightRed).open();
@@ -646,11 +647,11 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	private void createDesktopLink() {
 		try {
 			String applicationJarFileName = SystemUtilities.getCurrentlyRunningJarFilePath();
-			if (Utilities.isBlank(applicationJarFileName)) {
+			if (StringUtilities.isBlank(applicationJarFileName)) {
 				applicationJarFileName = openJarFilePathDialog();
 			}
 
-			if (Utilities.isBlank(applicationJarFileName)) {
+			if (StringUtilities.isBlank(applicationJarFileName)) {
 				return;
 			}
 
@@ -698,7 +699,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		data.append("If fso.FileExists(linkPath) Then fso.DeleteFile linkPath, True\n");
 		data.append("Set shortcut = shell.CreateShortcut(linkPath)\n");
 		data.append("shortcut.Description = " + toVbsString(applicationName) + "\n");
-		if (Utilities.isNotBlank(javaHome)) {
+		if (StringUtilities.isNotBlank(javaHome)) {
 			data.append("shortcut.TargetPath = " + toVbsString(javaHome + "\\bin\\javaw.exe") + "\n");
 			// JVM options of the currently running process must be placed before "-jar", everything after the jar file path is passed to the application
 			final StringBuilder commandLineArguments = new StringBuilder();
@@ -712,7 +713,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		}
 		if (iconAvailable) {
 			data.append("shortcut.IconLocation = " + toVbsString(iconPath + ",0") + "\n");
-		} else if (Utilities.isNotBlank(javaHome)) {
+		} else if (StringUtilities.isNotBlank(javaHome)) {
 			// Fallback: icon of javaw.exe instead of a reference to a missing file
 			data.append("shortcut.IconLocation = " + toVbsString(javaHome + "\\bin\\javaw.exe,0") + "\n");
 		}
@@ -738,7 +739,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 				desktopLinkFilePath = new String(Files.readAllBytes(resultFile.toPath()), StandardCharsets.UTF_16).trim();
 			}
 
-			if (exitCode == 0 && Utilities.isNotBlank(desktopLinkFilePath) && new File(desktopLinkFilePath).exists()) {
+			if (exitCode == 0 && StringUtilities.isNotBlank(desktopLinkFilePath) && new File(desktopLinkFilePath).exists()) {
 				JOptionPane.showMessageDialog(this, LangResources.get("desktopLinkWasCreatedAt", desktopLinkFilePath), LangResources.get("createDesktopLink"), JOptionPane.PLAIN_MESSAGE);
 			} else {
 				JOptionPane.showMessageDialog(this, LangResources.get("errorMessage", "wscript exit code " + exitCode), LangResources.get("createDesktopLink"), JOptionPane.ERROR_MESSAGE);
@@ -769,7 +770,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * the same JVM options as the running application.
 	 */
 	private void createLinuxDesktopLink(final String applicationJarFileName, final String javaHome) throws Exception {
-		final String dataHome = Utilities.isNotBlank(System.getenv("XDG_DATA_HOME")) ? System.getenv("XDG_DATA_HOME") : System.getProperty("user.home") + "/.local/share";
+		final String dataHome = StringUtilities.isNotBlank(System.getenv("XDG_DATA_HOME")) ? System.getenv("XDG_DATA_HOME") : System.getProperty("user.home") + "/.local/share";
 		final File applicationsDirectory = new File(dataHome, "applications");
 		if (!applicationsDirectory.isDirectory() && !applicationsDirectory.mkdirs()) {
 			throw new IOException("Cannot create directory " + applicationsDirectory.getAbsolutePath());
@@ -796,7 +797,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 			data.append("Icon=" + iconFile.getAbsolutePath() + "\n");
 		}
 
-		final String javaBinary = Utilities.isNotBlank(javaHome) && new File(javaHome, "bin/java").canExecute() ? new File(javaHome, "bin/java").getAbsolutePath() : "java";
+		final String javaBinary = StringUtilities.isNotBlank(javaHome) && new File(javaHome, "bin/java").canExecute() ? new File(javaHome, "bin/java").getAbsolutePath() : "java";
 		final StringBuilder exec = new StringBuilder(quoteDesktopExecArgument(javaBinary));
 		final List<String> jvmArguments = getJvmArgumentsForDesktopLink();
 		// JVM option "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED" allows the application to be pinned in the Linux Gnome applications dock.
@@ -854,7 +855,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		final List<String> jvmArguments = new ArrayList<>();
 		try {
 			for (final String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
-				if (Utilities.isNotBlank(argument) && !isExcludedJvmArgument(argument)) {
+				if (StringUtilities.isNotBlank(argument) && !isExcludedJvmArgument(argument)) {
 					jvmArguments.add(argument);
 				}
 			}

@@ -28,7 +28,7 @@ import de.soderer.swing.ModalDialog;
 import de.soderer.swing.QuestionDialog;
 import de.soderer.swing.SwingColor;
 import de.soderer.utilities.LangResources;
-import de.soderer.utilities.Utilities;
+import de.soderer.utilities.StringUtilities;
 
 /**
  * Modal dialog to manage named preference entries (e.g. connection settings)
@@ -115,17 +115,17 @@ public class UnsecurePreferencesDialog extends ModalDialog<Boolean> {
 		newNameField.getDocument().addDocumentListener(new DocumentListener() {
 			@Override
 			public void insertUpdate(final DocumentEvent event) {
-				createButton.setEnabled(Utilities.isNotBlank(newNameField.getText()));
+				createButton.setEnabled(StringUtilities.isNotBlank(newNameField.getText()));
 			}
 
 			@Override
 			public void removeUpdate(final DocumentEvent event) {
-				createButton.setEnabled(Utilities.isNotBlank(newNameField.getText()));
+				createButton.setEnabled(StringUtilities.isNotBlank(newNameField.getText()));
 			}
 
 			@Override
 			public void changedUpdate(final DocumentEvent event) {
-				createButton.setEnabled(Utilities.isNotBlank(newNameField.getText()));
+				createButton.setEnabled(StringUtilities.isNotBlank(newNameField.getText()));
 			}
 		});
 		comboPanel.add(newNameField);
@@ -191,7 +191,7 @@ public class UnsecurePreferencesDialog extends ModalDialog<Boolean> {
 		createButton = new JButton(textButton_Create);
 		createButton.setEnabled(false);
 		createButton.addActionListener(event -> {
-			if (Utilities.isNotBlank(newNameField.getText())) {
+			if (StringUtilities.isNotBlank(newNameField.getText())) {
 				getOrCreateDataStore().addEntry(newNameField.getText(), currentDataEntry);
 				saveAndClose();
 			}
@@ -241,7 +241,7 @@ public class UnsecurePreferencesDialog extends ModalDialog<Boolean> {
 		saveButton.addActionListener(event -> {
 			{
 				final UnsecureDataStore dataStore = getOrCreateDataStore();
-				if (Utilities.isNotBlank(newNameField.getText())) {
+				if (StringUtilities.isNotBlank(newNameField.getText())) {
 					dataStore.addEntry(newNameField.getText(), currentDataEntry);
 				} else if (preferencesTable.getSelectedRows().length == 1) {
 					dataStore.addEntry(getEntryName(preferencesTable.getSelectedRows()[0]), currentDataEntry);
