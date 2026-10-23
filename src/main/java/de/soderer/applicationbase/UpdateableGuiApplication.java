@@ -168,4 +168,23 @@ public class UpdateableGuiApplication extends SecureDataGuiApplication implement
 	protected Boolean isDailyUpdateCheckActivated() {
 		return null;
 	}
+
+	/**
+	 * Shows that the application file is in use by other running instances of the application and lets the user
+	 * check again after closing them, or cancel the update.
+	 *
+	 * @param message text naming the other processes and asking to close them
+	 * @return true to check again, false to cancel the update
+	 */
+	@Override
+	public boolean askForRetryWhileApplicationInUse(final String message) {
+		if (updateProgressDialog != null) {
+			// The download is done, its progress dialog must not stay open behind the question
+			updateProgressDialog.dispose();
+			updateProgressDialog = null;
+		}
+
+		final Integer buttonIndex = new QuestionDialog(this, "Update " + applicationName, message, LangResources.get("retry"), LangResources.get("cancel")).withBackgroundColor(SwingColor.LightRed).open();
+		return buttonIndex != null && buttonIndex == 0;
+	}
 }

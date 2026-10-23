@@ -84,6 +84,9 @@ import de.soderer.utilities.xml.XmlUtilities;
  * An update is refused while the application jar is used by another running process, e.g. the application started
  * a second time in another window (see {@link ApplicationInstanceDetector}), because the jar file cannot be replaced
  * then (Windows) or the other instance would fail when loading classes from the replaced jar (Linux, macOS).
+ * This is checked before the download and again before the updater replaces the jar and restarts the application.
+ * In an interactive update the user can close the other instances and retry the check, or cancel the update
+ * (see {@link ApplicationUpdateParent#askForRetryWhileApplicationInUse(String)}).
  */
 public class ApplicationUpdateUtilities {
 	/**
@@ -533,7 +536,9 @@ public class ApplicationUpdateUtilities {
 
 		final String jarFilePath = findRunningJarFilePath(applicationClass);
 		// Checked before the download, so the user does not wait for a download which cannot be installed
-		checkApplicationNotInUseByOtherProcesses(jarFilePath);
+		if (!waitForApplicationNotInUseByOtherProcesses(updateParent, jarFilePath)) {
+			return false;
+		}
 		final File downloadTempFile = new File(new File(jarFilePath).getParentFile(), DOWNLOAD_TEMP_FILE_PREFIX + new File(jarFilePath).getName());
 
 		boolean handedOverToUpdater = false;
@@ -550,8 +555,11 @@ public class ApplicationUpdateUtilities {
 
 			verifyUpdateFile(downloadTempFile, trustedCaCertificateFileNames, getApplicationClassLoader(applicationClass));
 
-			// Checked again, another instance may have been started during the download
-			checkApplicationNotInUseByOtherProcesses(jarFilePath);
+			// Checked again before the updater replaces the jar and restarts the application, another instance may have been started during the download
+			if (!waitForApplicationNotInUseByOtherProcesses(updateParent, jarFilePath)) {
+				// The downloaded file is removed in the finally block
+				return false;
+			}
 
 			final String[] updaterCommand = createUpdaterCommand(jarFilePath, downloadTempFile, jvmParameters, appParameters, restartAfterUpdate);
 
@@ -587,6 +595,33 @@ public class ApplicationUpdateUtilities {
 	}
 
 	/**
+	 * Checks that the application jar is not used by other running processes. While it is in use, an interactive
+	 * update parent lets the user close the other instances and check again, or cancel the update.
+	 *
+	 * @param updateParent interactive callbacks, null for a non-interactive update
+	 * @param jarFilePath absolute path of the application jar
+	 * @return true if no other process uses the application jar, false if the user canceled the update
+	 * @throws UserError if the application jar is in use and there is no update parent to ask
+	 */
+	private static boolean waitForApplicationNotInUseByOtherProcesses(final ApplicationUpdateParent updateParent, final String jarFilePath) throws UserError {
+		while (true) {
+			try {
+				checkApplicationNotInUseByOtherProcesses(jarFilePath);
+				return true;
+			} catch (final UserError e) {
+				if (updateParent == null) {
+					// Non-interactive update: nobody can close the other instances, so the update is refused
+					throw e;
+				} else if (!updateParent.askForRetryWhileApplicationInUse(e.getMessage())) {
+					// Canceled by the user, so no further error message is shown
+					return false;
+				}
+				// Retry: the other processes are determined again, the user may have closed some of them
+			}
+		}
+	}
+
+	/**
 	 * Refuses the update, while the application jar is used by other running processes, e.g. by the application
 	 * started a second time in another window. Updater and restarter processes of the application are not counted.
 	 *
@@ -602,7 +637,7 @@ public class ApplicationUpdateUtilities {
 			} else {
 				throw new UserError("The application file '" + jarFileName + "' is still in use by another running instance of the application (process id " + processIdsText + "), e.g. in another window."
 						+ "\nThe update cannot be installed while the application file is in use."
-						+ "\nPlease close all other windows of the application and start the update again.");
+						+ "\nPlease close all other windows of the application and retry, or cancel the update.");
 			}
 		}
 	}

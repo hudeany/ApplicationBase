@@ -185,4 +185,34 @@ public class UpdateableConsoleApplication implements ApplicationUpdateParent {
 	public void showUpdateDownloadEnd(final LocalDateTime startTime, final LocalDateTime endTime, final long itemsDone, final String itemsUnitSign) {
 		// Do nothing
 	}
+
+	/**
+	 * Shows on the console, that the application file is in use by other running instances of the application, and
+	 * asks whether to check again or to cancel the update. "1" or an answer starting like the retry text (e.g. "r" for
+	 * "Retry") checks again, anything else cancels.
+	 *
+	 * @param message text naming the other processes and asking to close them
+	 * @return true to check again, false to cancel the update (also if no interactive console is available)
+	 */
+	@Override
+	public boolean askForRetryWhileApplicationInUse(final String message) {
+		System.err.println(message);
+		System.out.println();
+		try {
+			if (System.console() == null) {
+				// No input possible (e.g. redirected input), so the update is canceled like before
+				return false;
+			} else {
+				final String retryText = LangResources.get("retry");
+				final String cancelText = LangResources.get("cancel");
+				final String input = new SimpleConsoleInput().withPrompt("1 = " + retryText + ", 2 = " + cancelText + ": ").readInput();
+				System.out.println();
+				final String answer = input == null ? "" : input.trim().toLowerCase(Locale.ROOT);
+				return "1".equals(answer) || (answer.length() > 0 && retryText.toLowerCase(Locale.ROOT).startsWith(answer) && !cancelText.toLowerCase(Locale.ROOT).startsWith(answer));
+			}
+		} catch (final Exception e) {
+			System.err.println("Cannot ask user for retry: " + e.getMessage());
+			return false;
+		}
+	}
 }

@@ -70,4 +70,13 @@ public interface ApplicationUpdateParent extends CredentialsParent {
 	 * @param itemsUnitSign unit of the items for display, may be null
 	 */
 	void showUpdateDownloadEnd(LocalDateTime startTime, LocalDateTime endTime, long itemsDone, String itemsUnitSign);
+
+	/**
+	 * Asks the user what to do while the application file is in use by other running instances of the application,
+	 * which prevents the update from being installed.
+	 *
+	 * @param message text naming the other processes and asking to close them
+	 * @return true to check again (the user closed the other instances), false to cancel the update
+	 */
+	boolean askForRetryWhileApplicationInUse(final String message);
 }
