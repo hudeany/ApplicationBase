@@ -51,12 +51,12 @@ import de.soderer.network.NetworkUtilities;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
+import de.soderer.utilities.StringSplitter;
 import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Tuple;
 import de.soderer.utilities.UserError;
 import de.soderer.utilities.UserError.Reason;
-import de.soderer.utilities.Utilities;
 import de.soderer.utilities.Version;
 import de.soderer.utilities.worker.FileCopyWorker;
 import de.soderer.utilities.worker.FileDownloadWorker;
@@ -596,7 +596,7 @@ public class ApplicationUpdateUtilities {
 		final List<Long> otherProcessIds = ApplicationInstanceDetector.getOtherProcessesUsingJarFile(jarFilePath, UPDATER_FILE_PREFIX, RESTARTER_FILE_PREFIX);
 		if (!otherProcessIds.isEmpty()) {
 			final String jarFileName = new File(jarFilePath).getName();
-			final String processIdsText = Utilities.join(otherProcessIds, ", ");
+			final String processIdsText = StringUtilities.join(otherProcessIds, ", ");
 			if (LangResources.existsKey("updateErrorApplicationInUse")) {
 				throw new UserError(LangResources.get("updateErrorApplicationInUse", jarFileName, processIdsText));
 			} else {
@@ -652,7 +652,7 @@ public class ApplicationUpdateUtilities {
 		}
 
 		final Collection<Certificate> trustedCertificates = new ArrayList<>();
-		for (final String trustedCaCertificateFileName : Utilities.splitAndTrimList(trustedCaCertificateFileNames)) {
+		for (final String trustedCaCertificateFileName : StringSplitter.splitAndTrimList(trustedCaCertificateFileNames)) {
 			try (InputStream trustedUpdateCertificatesStream = applicationClassLoader.getResourceAsStream(trustedCaCertificateFileName)) {
 				if (trustedUpdateCertificatesStream != null) {
 					for (final Certificate trustedCaCertificate : CertificateFactory.getInstance("X.509").generateCertificates(new BufferedInputStream(trustedUpdateCertificatesStream))) {

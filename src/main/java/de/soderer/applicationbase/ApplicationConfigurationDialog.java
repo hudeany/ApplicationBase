@@ -64,6 +64,7 @@ import de.soderer.utilities.DateUtilities;
 import de.soderer.utilities.FileUtilities;
 import de.soderer.utilities.LangResources;
 import de.soderer.utilities.Result;
+import de.soderer.utilities.StringSplitter;
 import de.soderer.utilities.StringUtilities;
 import de.soderer.utilities.SystemUtilities;
 import de.soderer.utilities.Utilities;
@@ -275,7 +276,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 					final JTextField valueTextField = createTextField(key, value);
 					valuesPanel.add(valueTextField, createValueConstraints(row, 2, 1));
 				} else if (applicationConfiguration.containsKey(key + ConfigurationProperties.ENUM_EXTENSION)) {
-					valuesPanel.add(createDropDown(key, Utilities.splitAndTrimList(applicationConfiguration.get(key + ConfigurationProperties.ENUM_EXTENSION)), value), createValueConstraints(row, 1, 2));
+					valuesPanel.add(createDropDown(key, StringSplitter.splitAndTrimList(applicationConfiguration.get(key + ConfigurationProperties.ENUM_EXTENSION)), value), createValueConstraints(row, 1, 2));
 				} else if (ConfigurationProperties.CONFIG_KEY_LANGUAGE.equalsIgnoreCase(key)) {
 					// No enum definition in the configuration: offer the languages known to the application
 					availableLanguagesDropDown = createDropDown(key, availableLanguages, value);
