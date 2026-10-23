@@ -10,9 +10,9 @@
 	<property name="json.version" value="26.2.15" />
 	<property name="network.version" value="26.0.39" />
 	<property name="proxyautoconfig.version" value="26.1.5" />
-	<property name="soderer-console.version" value="26.0.12" />
-	<property name="soderer-swing.version" value="26.0.25" />
-	<property name="soderer-utilities.version" value="26.3.0" />
+	<property name="soderer-console.version" value="26.0.13" />
+	<property name="soderer-swing.version" value="26.0.26" />
+	<property name="soderer-utilities.version" value="26.3.1" />
 	
 	<!-- Maven POM dependencies: "groupId:artifactId:version[:optional]" -->
 	<property name="mavenDependency.csv" value="de.soderer:csv:${csv.version}" />
@@ -24,7 +24,7 @@
 	<property name="mavenDependency.soderer-utilities" value="de.soderer:soderer-utilities:${soderer-utilities.version}" />
 
 	<!-- Special: AntBuildHelp is used to download the runtime libraries -->
-	<property name="antbuildhelp.version" value="26.0.15" />
+	<property name="antbuildhelp.version" value="26.0.16" />
 
 	<available file="lib_build/antbuildhelp-${antbuildhelp.version}.jar" property="antbuildhelp.available" />
 	<target name="get_antbuildhelp" unless="antbuildhelp.available">
