@@ -15,7 +15,7 @@
 	<classpathentry kind="lib" path="lib/network-26.0.39.jar"/>
 	<classpathentry kind="lib" path="lib/proxyautoconfig-26.1.5.jar"/>
 	<classpathentry kind="lib" path="lib/soderer-console-26.0.13.jar"/>
-	<classpathentry kind="lib" path="lib/soderer-swing-26.0.26.jar"/>
-	<classpathentry kind="lib" path="lib/soderer-utilities-26.3.1.jar"/>
+	<classpathentry kind="lib" path="lib/soderer-swing-26.0.27.jar"/>
+	<classpathentry kind="lib" path="lib/soderer-utilities-26.3.2.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
