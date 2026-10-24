@@ -121,7 +121,8 @@ public class SecureDataGuiApplication extends JFrame {
 
 			try {
 				openedKeystore.keystore.addEntry(entryName, value);
-				openedKeystore.keystore.save(keystoreFile, openedKeystore.password);
+				// save() wipes the given array, so a copy is passed
+				openedKeystore.keystore.save(keystoreFile, Arrays.copyOf(openedKeystore.password, openedKeystore.password.length));
 				return true;
 			} finally {
 				wipe(openedKeystore.password);
@@ -145,7 +146,8 @@ public class SecureDataGuiApplication extends JFrame {
 			try {
 				final SecureDataStore secureDataStore = new SecureDataStore();
 				secureDataStore.addEntry(entryName, value);
-				secureDataStore.save(keystoreFile, keystorePassword);
+				// save() wipes the given array, but the password may still be remembered afterwards
+				secureDataStore.save(keystoreFile, Arrays.copyOf(keystorePassword, keystorePassword.length));
 				if (keystoreCredentialsDialog.isRememberCredentials()) {
 					rememberPassword(keystorePassword);
 				}
@@ -173,7 +175,8 @@ public class SecureDataGuiApplication extends JFrame {
 		final char[] firstTryPassword = rememberedKeystorePassword != null ? Arrays.copyOf(rememberedKeystorePassword, rememberedKeystorePassword.length) : new char[0];
 		try {
 			final SecureDataStore keystore = new SecureDataStore();
-			keystore.load(keystoreFile, firstTryPassword);
+			// load() wipes the given array, but the password is needed for saving the keystore again
+			keystore.load(keystoreFile, Arrays.copyOf(firstTryPassword, firstTryPassword.length));
 			return new OpenedKeystore(keystore, firstTryPassword);
 		} catch (@SuppressWarnings("unused") final WrongPasswordException e) {
 			wipe(firstTryPassword);
@@ -199,7 +202,8 @@ public class SecureDataGuiApplication extends JFrame {
 			final char[] keystorePassword = credentials.getPassword() == null ? new char[0] : credentials.getPassword();
 			try {
 				final SecureDataStore keystore = new SecureDataStore();
-				keystore.load(keystoreFile, keystorePassword);
+				// load() wipes the given array, but the password is needed for saving the keystore again
+				keystore.load(keystoreFile, Arrays.copyOf(keystorePassword, keystorePassword.length));
 
 				if (keystoreCredentialsDialog.isRememberCredentials()) {
 					rememberPassword(keystorePassword);
