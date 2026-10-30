@@ -1,4 +1,4 @@
-package de.soderer.applicationbase;
+package de.soderer.applicationbase.modern;
 
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -49,13 +49,16 @@ import javax.swing.WindowConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 
+import de.soderer.applicationbase.ApplicationConfigurationProperties;
+import de.soderer.applicationbase.ApplicationUpdateUtilities;
+import de.soderer.applicationbase.UpdateableGuiApplication;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.pac.utilities.ProxyConfiguration.ProxyConfigurationType;
-import de.soderer.swing.DropDown;
 import de.soderer.swing.modern.ButtonStyle;
 import de.soderer.swing.modern.DialogStyle;
+import de.soderer.swing.modern.DropDown;
 import de.soderer.swing.modern.IconKind;
-import de.soderer.swing.modern.ModalDialogModern;
+import de.soderer.swing.modern.ModalDialog;
 import de.soderer.swing.modern.ModernUi;
 import de.soderer.swing.modern.QuestionDialog;
 import de.soderer.swing.modern.ShowDataDialog;
@@ -90,7 +93,7 @@ import de.soderer.utilities.YesNoAsk;
  * {@link Result#CANCELED}.
  * </p>
  */
-public class ApplicationConfigurationDialogModern extends ModalDialogModern<Result> {
+public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	private static final long serialVersionUID = 422519084107817691L;
 
 	/** Language of the root language file without language suffix ("LanguageProperties.properties") */
@@ -182,7 +185,7 @@ public class ApplicationConfigurationDialogModern extends ModalDialogModern<Resu
 	 * @param appParameters application parameters passed to a restarted
 	 *            application after an update
 	 */
-	public ApplicationConfigurationDialogModern(final UpdateableGuiApplication updateParent, final String applicationName, final String applicationClassName, final Version applicationVersion, final LocalDateTime applicationBuildTime, final ConfigurationProperties applicationConfiguration, final byte[] iconImageDataWindows, final Image iconImageLinux, final String versioninfoDownloadURL, final String trustedUpdateCaCertificates, final List<String> appParameters) {
+	public ApplicationConfigurationDialog(final UpdateableGuiApplication updateParent, final String applicationName, final String applicationClassName, final Version applicationVersion, final LocalDateTime applicationBuildTime, final ConfigurationProperties applicationConfiguration, final byte[] iconImageDataWindows, final Image iconImageLinux, final String versioninfoDownloadURL, final String trustedUpdateCaCertificates, final List<String> appParameters) {
 		super(updateParent, applicationName + " (Version " + applicationVersion.toString() + ") " + LangResources.get("configuration"), IconKind.GEAR);
 
 		this.updateParent = updateParent;
@@ -1102,7 +1105,7 @@ public class ApplicationConfigurationDialogModern extends ModalDialogModern<Resu
 	 * @param availableLanguagesValue language codes, null for none
 	 * @return this dialog for chaining
 	 */
-	public ApplicationConfigurationDialogModern withAvailableLanguages(final List<String> availableLanguagesValue) {
+	public ApplicationConfigurationDialog withAvailableLanguages(final List<String> availableLanguagesValue) {
 		setAvailableLanguages(availableLanguagesValue);
 		return this;
 	}
