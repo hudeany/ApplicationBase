@@ -52,11 +52,11 @@ import javax.swing.event.DocumentListener;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.pac.utilities.ProxyConfiguration.ProxyConfigurationType;
 import de.soderer.swing.DropDown;
+import de.soderer.swing.modern.ButtonStyle;
 import de.soderer.swing.modern.DialogStyle;
 import de.soderer.swing.modern.IconKind;
-import de.soderer.swing.modern.ModalDialog;
+import de.soderer.swing.modern.ModalDialogModern;
 import de.soderer.swing.modern.ModernUi;
-import de.soderer.swing.modern.ModernUi.ButtonStyle;
 import de.soderer.swing.modern.QuestionDialog;
 import de.soderer.swing.modern.ShowDataDialog;
 import de.soderer.utilities.ConfigurationProperties;
@@ -90,7 +90,7 @@ import de.soderer.utilities.YesNoAsk;
  * {@link Result#CANCELED}.
  * </p>
  */
-public class ApplicationConfigurationDialogModern extends ModalDialog<Result> {
+public class ApplicationConfigurationDialogModern extends ModalDialogModern<Result> {
 	private static final long serialVersionUID = 422519084107817691L;
 
 	/** Language of the root language file without language suffix ("LanguageProperties.properties") */
