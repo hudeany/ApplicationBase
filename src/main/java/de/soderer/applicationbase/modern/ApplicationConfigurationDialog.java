@@ -51,7 +51,6 @@ import javax.swing.event.DocumentListener;
 
 import de.soderer.applicationbase.ApplicationConfigurationProperties;
 import de.soderer.applicationbase.ApplicationUpdateUtilities;
-import de.soderer.applicationbase.UpdateableGuiApplication;
 import de.soderer.pac.utilities.ProxyConfiguration;
 import de.soderer.pac.utilities.ProxyConfiguration.ProxyConfigurationType;
 import de.soderer.swing.modern.ButtonStyle;
