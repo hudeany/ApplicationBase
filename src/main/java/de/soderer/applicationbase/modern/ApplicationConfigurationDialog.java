@@ -524,25 +524,25 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 
 		final List<JButton> buttons = new ArrayList<>();
 
-		final JButton createDesktopLinkButton = new ModernUi.ModernButton(LangResources.get("createDesktopLink"), IconKind.FILE, ButtonStyle.SECONDARY);
+		final JButton createDesktopLinkButton = new ModernUi.Button(LangResources.get("createDesktopLink"), IconKind.FILE, ButtonStyle.SECONDARY);
 		createDesktopLinkButton.addActionListener(e -> createDesktopLink());
 		buttons.add(createDesktopLinkButton);
 
-		final JButton showSystemPropertiesButton = new ModernUi.ModernButton(LangResources.get("showSystemProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final JButton showSystemPropertiesButton = new ModernUi.Button(LangResources.get("showSystemProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showSystemPropertiesButton.addActionListener(e -> showProperties(LangResources.get("systemProperties"), Utilities.getSystemPropertiesMap()));
 		buttons.add(showSystemPropertiesButton);
 
-		final JButton showRuntimePropertiesButton = new ModernUi.ModernButton(LangResources.get("showRuntimeProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final JButton showRuntimePropertiesButton = new ModernUi.Button(LangResources.get("showRuntimeProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showRuntimePropertiesButton.addActionListener(e -> showProperties(LangResources.get("runtimeProperties"), SystemUtilities.getRuntimeProperties(true)));
 		buttons.add(showRuntimePropertiesButton);
 
 		// Swing counterpart of the SWT variant's "SWT properties"
-		final JButton showSwingPropertiesButton = new ModernUi.ModernButton(LangResources.get("showSwingProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final JButton showSwingPropertiesButton = new ModernUi.Button(LangResources.get("showSwingProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showSwingPropertiesButton.addActionListener(e -> showProperties(LangResources.get("swingProperties"), getSwingProperties()));
 		buttons.add(showSwingPropertiesButton);
 
 		if (StringUtilities.isNotBlank(versioninfoDownloadURL)) {
-			final JButton updateButton = new ModernUi.ModernButton(LangResources.get("checkUpdate"), IconKind.REFRESH, ButtonStyle.SECONDARY);
+			final JButton updateButton = new ModernUi.Button(LangResources.get("checkUpdate"), IconKind.REFRESH, ButtonStyle.SECONDARY);
 			updateButton.addActionListener(e -> checkUpdate());
 			buttons.add(updateButton);
 		}
