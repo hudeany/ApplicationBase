@@ -19,6 +19,7 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.LocalDateTime;
@@ -112,7 +113,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	/** Name of the application, used in titles and for desktop link and icon file names */
 	private final String applicationName;
 
-	/** WM_CLASS of the application, used for the Linux desktop link (may be null) */
+	/** WM_CLASS of the application, fallback for the Linux desktop link if the WM_CLASS of the running process is unknown (may be null) */
 	private final String applicationClassName;
 
 	/** Version of the application, shown in the title and used for the update check */
@@ -832,9 +833,11 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		data.append("Terminal=false\n");
 		data.append("Type=Application\n");
 
-		if (applicationClassName != null) {
-			// StartupWMClass must match the WM_CLASS set by the main application, so the launcher can group all windows of the same application
-			data.append("StartupWMClass=" + applicationClassName + "\n");
+		// StartupWMClass must match the WM_CLASS of the application windows exactly (case sensitive),
+		// otherwise GNOME cannot assign the windows to this launcher and the application cannot be pinned to the dock
+		final String startupWmClass = getStartupWmClass();
+		if (StringUtilities.isNotBlank(startupWmClass)) {
+			data.append("StartupWMClass=" + startupWmClass.replaceAll("[\\r\\n]+", " ") + "\n");
 		}
 
 		try {
@@ -845,6 +848,51 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 			showMessage(LangResources.get("createDesktopLink"), LangResources.get("desktopLinkWasCreatedAt", desktopLinkFile.getAbsolutePath()), DialogStyle.INFORMATION);
 		} catch (final IOException e) {
 			showMessage(LangResources.get("createDesktopLink"), LangResources.get("errorMessage", e.getMessage()), DialogStyle.ERROR);
+		}
+	}
+
+	/**
+	 * WM_CLASS for the "StartupWMClass" key of the Linux desktop link.
+	 *
+	 * <p>
+	 * The WM_CLASS actually used by the running process is preferred, because
+	 * the process started by the link sets its WM_CLASS with the same code. A
+	 * default derived by AWT itself (e.g. "java-lang-Thread") means that the
+	 * WM_CLASS could not be set in this process (e.g. missing "--add-opens"
+	 * option), so the configured application class name is used instead.
+	 * </p>
+	 *
+	 * @return WM_CLASS, may be null
+	 */
+	private String getStartupWmClass() {
+		final String effectiveWmClass = getEffectiveWmClass();
+		if (StringUtilities.isNotBlank(effectiveWmClass) && !effectiveWmClass.startsWith("java-") && !effectiveWmClass.startsWith("sun-")) {
+			if (applicationClassName != null && !applicationClassName.equals(effectiveWmClass)) {
+				System.err.println("Configured application class name \"" + applicationClassName + "\" differs from the WM_CLASS \"" + effectiveWmClass + "\" of the application windows, the WM_CLASS is used for the desktop link");
+			}
+			return effectiveWmClass;
+		} else {
+			return applicationClassName;
+		}
+	}
+
+	/**
+	 * WM_CLASS actually used by the AWT windows of this process.
+	 *
+	 * @return WM_CLASS, null if not running with the X11 toolkit or not accessible
+	 */
+	private static String getEffectiveWmClass() {
+		try {
+			final Toolkit toolkit = Toolkit.getDefaultToolkit();
+			if (!"sun.awt.X11.XToolkit".equals(toolkit.getClass().getName())) {
+				return null;
+			}
+			final Method getAppClassNameMethod = toolkit.getClass().getDeclaredMethod("getAWTAppClassName");
+			// Requires the JVM option "--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED"
+			getAppClassNameMethod.setAccessible(true);
+			return (String) getAppClassNameMethod.invoke(null);
+		} catch (@SuppressWarnings("unused") final Exception | LinkageError e) {
+			return null;
 		}
 	}
 
