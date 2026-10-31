@@ -55,16 +55,16 @@ public class UnsecurePreferencesDialog extends ModalDialog<Boolean> {
 	/** Data entry to store, or the loaded entry after loading; its class determines the listed entries */
 	private transient Object currentDataEntry;
 
-	/** Button loading the selected entry */
+	/** JButton loading the selected entry */
 	private final JButton loadButton;
 
-	/** Button storing the current data entry under the name entered in newNameField */
+	/** JButton storing the current data entry under the name entered in newNameField */
 	private final JButton createButton;
 
-	/** Button overwriting the selected entry with the current data entry */
+	/** JButton overwriting the selected entry with the current data entry */
 	private final JButton updateButton;
 
-	/** Button deleting the selected entries */
+	/** JButton deleting the selected entries */
 	private final JButton deleteButton;
 
 	/** Input field for the name of a new entry */
@@ -171,7 +171,7 @@ public class UnsecurePreferencesDialog extends ModalDialog<Boolean> {
 
 		panel.add(Box.createRigidArea(new Dimension(0, 5)));
 
-		// Button Panel
+		// JButton Panel
 		final JPanel buttonPanel1 = new JPanel();
 		buttonPanel1.setLayout(new BoxLayout(buttonPanel1, BoxLayout.LINE_AXIS));
 

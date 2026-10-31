@@ -33,7 +33,6 @@ import java.util.Map.Entry;
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
-import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -500,8 +499,8 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		return displayValue != null && displayValue.equals(LangResources.get("None")) ? "None" : displayValue;
 	}
 
-	private JButton createHelpButton(final String helpText) {
-		final JButton helpButton = ModernUi.createToolbarButton(new ThemeIcon(IconKind.HELP, 16, ModernUi.ACCENT), helpText, 28);
+	private Button createHelpButton(final String helpText) {
+		final Button helpButton = ModernUi.createToolbarButton(new ThemeIcon(IconKind.HELP, 16, ModernUi.ACCENT), helpText, 28);
 		helpButton.addActionListener(e -> new QuestionDialog(this, applicationName, helpText, LangResources.get("ok")).withDialogStyle(DialogStyle.INFORMATION).open());
 		return helpButton;
 	}
@@ -523,27 +522,27 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 				BorderFactory.createMatteBorder(1, 0, 0, 0, ModernUi.INNER_BORDER),
 				BorderFactory.createEmptyBorder(8, 0, 0, 0)));
 
-		final List<JButton> buttons = new ArrayList<>();
+		final List<Button> buttons = new ArrayList<>();
 
-		final JButton createDesktopLinkButton = new Button(LangResources.get("createDesktopLink"), IconKind.FILE, ButtonStyle.SECONDARY);
+		final Button createDesktopLinkButton = new Button(LangResources.get("createDesktopLink"), IconKind.FILE, ButtonStyle.SECONDARY);
 		createDesktopLinkButton.addActionListener(e -> createDesktopLink());
 		buttons.add(createDesktopLinkButton);
 
-		final JButton showSystemPropertiesButton = new Button(LangResources.get("showSystemProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final Button showSystemPropertiesButton = new Button(LangResources.get("showSystemProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showSystemPropertiesButton.addActionListener(e -> showProperties(LangResources.get("systemProperties"), Utilities.getSystemPropertiesMap()));
 		buttons.add(showSystemPropertiesButton);
 
-		final JButton showRuntimePropertiesButton = new Button(LangResources.get("showRuntimeProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final Button showRuntimePropertiesButton = new Button(LangResources.get("showRuntimeProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showRuntimePropertiesButton.addActionListener(e -> showProperties(LangResources.get("runtimeProperties"), SystemUtilities.getRuntimeProperties(true)));
 		buttons.add(showRuntimePropertiesButton);
 
 		// Swing counterpart of the SWT variant's "SWT properties"
-		final JButton showSwingPropertiesButton = new Button(LangResources.get("showSwingProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
+		final Button showSwingPropertiesButton = new Button(LangResources.get("showSwingProperties"), IconKind.LOG, ButtonStyle.SECONDARY);
 		showSwingPropertiesButton.addActionListener(e -> showProperties(LangResources.get("swingProperties"), getSwingProperties()));
 		buttons.add(showSwingPropertiesButton);
 
 		if (StringUtilities.isNotBlank(versioninfoDownloadURL)) {
-			final JButton updateButton = new Button(LangResources.get("checkUpdate"), IconKind.REFRESH, ButtonStyle.SECONDARY);
+			final Button updateButton = new Button(LangResources.get("checkUpdate"), IconKind.REFRESH, ButtonStyle.SECONDARY);
 			updateButton.addActionListener(e -> checkUpdate());
 			buttons.add(updateButton);
 		}
@@ -570,7 +569,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 * Save and cancel in the button bar of the dialog.
 	 */
 	private void createDialogButtons() {
-		final JButton saveButton = addButton(LangResources.get("save"), null, ButtonStyle.PRIMARY, e -> {
+		final Button saveButton = addButton(LangResources.get("save"), null, ButtonStyle.PRIMARY, e -> {
 			applyPendingChanges();
 			returnValue = Result.OK;
 			dispose();

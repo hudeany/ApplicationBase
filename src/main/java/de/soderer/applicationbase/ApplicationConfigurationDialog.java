@@ -493,7 +493,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	}
 
 	private JButton createHelpButton(final String helpText) {
-		final JButton helpButton = new JButton();
+		final JButton helpButton = new JButton("");
 		try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("images/icons/question.png")) {
 			if (inputStream != null) {
 				helpButton.setIcon(new ImageIcon(inputStream.readAllBytes()));

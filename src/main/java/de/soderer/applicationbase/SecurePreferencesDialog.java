@@ -76,16 +76,16 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 	/** Text of the cancel button of the password dialog */
 	private final String text_Cancel;
 
-	/** Button loading the selected entry */
+	/** JButton loading the selected entry */
 	private final JButton loadButton;
 
-	/** Button storing the current data entry under the name entered in newNameField */
+	/** JButton storing the current data entry under the name entered in newNameField */
 	private final JButton createButton;
 
-	/** Button overwriting the selected entry with the current data entry */
+	/** JButton overwriting the selected entry with the current data entry */
 	private final JButton updateButton;
 
-	/** Button deleting the selected entries */
+	/** JButton deleting the selected entries */
 	private final JButton deleteButton;
 
 	/**
@@ -207,7 +207,7 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 
 		panel.add(Box.createRigidArea(new Dimension(0, 5)));
 
-		// Button Panel
+		// JButton Panel
 		final JPanel buttonPanel1 = new JPanel();
 		buttonPanel1.setLayout(new BoxLayout(buttonPanel1, BoxLayout.LINE_AXIS));
 
