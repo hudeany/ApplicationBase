@@ -28,13 +28,13 @@ import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
 
 import de.soderer.applicationbase.SecureDataStore;
+import de.soderer.swing.modern.Button;
 import de.soderer.swing.modern.ButtonStyle;
 import de.soderer.swing.modern.CredentialsDialog;
 import de.soderer.swing.modern.DialogStyle;
 import de.soderer.swing.modern.IconKind;
 import de.soderer.swing.modern.ModalDialog;
 import de.soderer.swing.modern.ModernUi;
-import de.soderer.swing.modern.ModernUi.Button;
 import de.soderer.swing.modern.QuestionDialog;
 import de.soderer.utilities.Credentials;
 import de.soderer.utilities.LangResources;
