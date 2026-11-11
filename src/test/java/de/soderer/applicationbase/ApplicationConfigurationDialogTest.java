@@ -117,7 +117,7 @@ public class ApplicationConfigurationDialogTest {
 
 	private ApplicationConfigurationDialog createDialog(final String versionIndexLocation) {
 		dialog = new ApplicationConfigurationDialog(application, APPLICATION_NAME, "test-wm-class", new Version(1, 2, 3), LocalDateTime.now(), configuration,
-				new byte[] { 0, 0, 1, 0 }, createIcon(), versionIndexLocation, null, Arrays.asList("arg"));
+				new byte[] { 0, 0, 1, 0 }, createIcon(), versionIndexLocation, null, Arrays.asList("arg"), false);
 		return dialog;
 	}
 
@@ -173,7 +173,7 @@ public class ApplicationConfigurationDialogTest {
 
 	@Test
 	public void testDialogWithoutOptionalValues() throws Exception {
-		dialog = new ApplicationConfigurationDialog(application, APPLICATION_NAME, null, new Version(1, 2, 3), null, configuration, null, null, "https://example.com/versions.json", null, null);
+		dialog = new ApplicationConfigurationDialog(application, APPLICATION_NAME, null, new Version(1, 2, 3), null, configuration, null, null, "https://example.com/versions.json", null, null, false);
 		assertNotNull(DialogRobot.findButton(dialog.getContentPane(), LangResources.get("checkUpdate")));
 	}
 

@@ -160,6 +160,9 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	/** Last selected language, to show the restart info only when the language really changes */
 	private String lastLanguageValue;
 
+	/** Allow application updates without code signing CA certificates check */
+	private final boolean allowUnsafeUpdates;
+
 	/**
 	 * Creates the configuration dialog.
 	 *
@@ -181,8 +184,10 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 	 *            signature check
 	 * @param appParameters application parameters passed to a restarted
 	 *            application after an update
+	 * @param allowUnsafeUpdates Allow application updates without
+	 *            code signing CA certificates check
 	 */
-	public ApplicationConfigurationDialog(final UpdateableGuiApplication updateParent, final String applicationName, final String applicationClassName, final Version applicationVersion, final LocalDateTime applicationBuildTime, final ConfigurationProperties applicationConfiguration, final byte[] iconImageDataWindows, final Image iconImageLinux, final String versioninfoDownloadURL, final String trustedUpdateCaCertificates, final List<String> appParameters) {
+	public ApplicationConfigurationDialog(final UpdateableGuiApplication updateParent, final String applicationName, final String applicationClassName, final Version applicationVersion, final LocalDateTime applicationBuildTime, final ConfigurationProperties applicationConfiguration, final byte[] iconImageDataWindows, final Image iconImageLinux, final String versioninfoDownloadURL, final String trustedUpdateCaCertificates, final List<String> appParameters, final boolean allowUnsafeUpdates) {
 		super(updateParent, applicationName + " (Version " + applicationVersion.toString() + ") " + LangResources.get("configuration"));
 
 		this.updateParent = updateParent;
@@ -196,6 +201,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		this.versioninfoDownloadURL = versioninfoDownloadURL;
 		this.trustedUpdateCaCertificates = trustedUpdateCaCertificates;
 		this.appParameters = appParameters;
+		this.allowUnsafeUpdates = allowUnsafeUpdates;
 
 		lastLanguageValue = applicationConfiguration.get(ConfigurationProperties.CONFIG_KEY_LANGUAGE);
 
@@ -640,7 +646,7 @@ public class ApplicationConfigurationDialog extends ModalDialog<Result> {
 		try {
 			// A configuration without proxy settings means a direct connection
 			final String proxyConfigurationType = StringUtilities.isBlank(getProxyConfigurationType()) ? "None" : getProxyConfigurationType();
-			ApplicationUpdateUtilities.executeUpdate(updateParent, versioninfoDownloadURL, new ProxyConfiguration(ProxyConfigurationType.getFromString(proxyConfigurationType), getProxyUrl()), applicationName, applicationVersion, trustedUpdateCaCertificates, null, null, appParameters, true, false);
+			ApplicationUpdateUtilities.executeUpdate(updateParent, versioninfoDownloadURL, new ProxyConfiguration(ProxyConfigurationType.getFromString(proxyConfigurationType), getProxyUrl()), applicationName, applicationVersion, trustedUpdateCaCertificates, null, null, appParameters, true, allowUnsafeUpdates);
 		} catch (final Exception e) {
 			new QuestionDialog(this, applicationName + " ERROR", "ERROR:\n" + e.getMessage()).withBackgroundColor(SwingColor.LightRed).open();
 		}
