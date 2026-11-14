@@ -11,7 +11,7 @@
 	<!-- Dependency versions -->
 	<property name="csv.version" value="26.1.16" />
 	<property name="json.version" value="26.2.19" />
-	<property name="network.version" value="26.0.42" />
+	<property name="network.version" value="26.0.43" />
 	<property name="proxyautoconfig.version" value="26.1.7" />
 	<property name="soderer-console.version" value="26.0.17" />
 	<property name="soderer-swing.version" value="26.0.46" />
