@@ -556,6 +556,11 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 					try {
 						secureDataStore = new SecureDataStore();
 						secureDataStore.load(preferencesFile, password);
+						if (latestPassword == null) {
+							// Loading without a known password only succeeds for an empty password, so it is known now.
+							// Otherwise saving would treat the existing file like a new one and ask for a password.
+							setPasswordInternal(new char[0]);
+						}
 					} catch (@SuppressWarnings("unused") final WrongPasswordException e) {
 						secureDataStore = null;
 						final CredentialsDialog credentialsDialog = new CredentialsDialog(getOwner(), getTitle(), text_PasswordText, false, true, null, text_Password, text_OK, text_Cancel);
