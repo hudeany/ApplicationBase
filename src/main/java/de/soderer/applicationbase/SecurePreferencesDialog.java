@@ -48,8 +48,11 @@ import de.soderer.utilities.WrongPasswordException;
  * </p>
  *
  * <p>
- * An existing file is always saved with the password it was opened with. A new
- * file asks for its password twice, so a typo cannot lock the user out.
+ * "Save" stores an existing file with the password it was opened with (which
+ * may intentionally be empty). A new file asks for its password twice, so a
+ * typo cannot lock the user out. Only for an existing file, an additional
+ * "Save with new password" button lets the user deliberately change the
+ * password; it also asks twice.
  * </p>
  */
 public class SecurePreferencesDialog extends ModalDialog<Boolean> {
@@ -121,6 +124,34 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 	public SecurePreferencesDialog(final Window parent, final String title, final String text, final File securePreferencesFile,
 			final String textButton_Load, final String textButton_Create, final String textButton_Update, final String textButton_Delete, final String textButton_Save, final String textButton_Cancel, final String text_PasswordText,
 			final String text_Password, final String text_OK, final String text_Cancel) {
+		this(parent, title, text, securePreferencesFile, textButton_Load, textButton_Create, textButton_Update, textButton_Delete, textButton_Save,
+				LangResources.get("preferences_saveWithNewPassword"), textButton_Cancel, text_PasswordText, text_Password, text_OK, text_Cancel);
+	}
+
+	/**
+	 * Creates a secure preferences dialog with an explicit text for the "save
+	 * with new password" button.
+	 *
+	 * @param parent owner window, may be null
+	 * @param title title of the dialog
+	 * @param text tooltip text of the name field and the entry list
+	 * @param securePreferencesFile file of the secure data store
+	 * @param textButton_Load text of the load button
+	 * @param textButton_Create text of the create button
+	 * @param textButton_Update text of the update button
+	 * @param textButton_Delete text of the delete button
+	 * @param textButton_Save text of the save button (saves with the current password)
+	 * @param textButton_SaveWithNewPassword text of the button saving with a new
+	 *            password, only shown for an existing file; null or blank hides the button
+	 * @param textButton_Cancel text of the cancel button
+	 * @param text_PasswordText text of the password dialog
+	 * @param text_Password label of the password field
+	 * @param text_OK text of the OK button of the password dialog
+	 * @param text_Cancel text of the cancel button of the password dialog
+	 */
+	public SecurePreferencesDialog(final Window parent, final String title, final String text, final File securePreferencesFile,
+			final String textButton_Load, final String textButton_Create, final String textButton_Update, final String textButton_Delete, final String textButton_Save, final String textButton_SaveWithNewPassword,
+			final String textButton_Cancel, final String text_PasswordText, final String text_Password, final String text_OK, final String text_Cancel) {
 		super(parent, title);
 
 		this.text_PasswordText = text_PasswordText;
@@ -277,18 +308,29 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 		final JButton saveButton = new JButton(textButton_Save);
 		saveButton.addActionListener(event -> {
 			if (ensurePassword()) {
-				final SecureDataStore dataStore = getOrCreateDataStore();
-				if (StringUtilities.isNotBlank(newNameField.getText())) {
-					dataStore.addEntry(newNameField.getText(), currentDataEntry);
-				} else if (preferencesTable.getSelectedRows().length == 1) {
-					dataStore.addEntry(getEntryName(preferencesTable.getSelectedRows()[0]), currentDataEntry);
-				}
+				storeEnteredOrSelectedEntry();
 				saveAndClose();
 			}
 		});
 		buttonPanel2.add(saveButton);
 
 		buttonPanel2.add(Box.createRigidArea(new Dimension(5, 0)));
+
+		// Changing the password only makes sense for an existing file: a new file asks for its password anyway
+		if (preferencesFile.exists() && StringUtilities.isNotBlank(textButton_SaveWithNewPassword)) {
+			final JButton saveWithNewPasswordButton = new JButton(textButton_SaveWithNewPassword);
+			saveWithNewPasswordButton.addActionListener(event -> {
+				// Ask first, so a canceled password dialog leaves the store unchanged
+				final char[] newPassword = askForNewPassword();
+				if (newPassword != null) {
+					storeEnteredOrSelectedEntry();
+					saveWithNewPasswordAndClose(newPassword);
+				}
+			});
+			buttonPanel2.add(saveWithNewPasswordButton);
+
+			buttonPanel2.add(Box.createRigidArea(new Dimension(5, 0)));
+		}
 
 		final JButton cancelButton = new JButton(textButton_Cancel);
 		cancelButton.addActionListener(event -> {
@@ -349,16 +391,61 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 			return true;
 		}
 
-		final CredentialsDialog credentialsDialog = new CredentialsDialog(this, getTitle(), text_PasswordText, false, true, null, text_Password, text_OK, text_Cancel);
-		// The password is only unknown for a new file: a typo would make it unreadable
-		credentialsDialog.setPasswordConfirmation(true);
-		final Credentials credentials = credentialsDialog.open();
-		if (credentials == null) {
+		// The password is only unknown for a new file
+		final char[] newPassword = askForNewPassword();
+		if (newPassword == null) {
 			return false;
 		}
 
-		setPasswordInternal(credentials.getPassword() == null ? new char[0] : credentials.getPassword());
+		setPasswordInternal(newPassword);
 		return true;
+	}
+
+	/**
+	 * Asks the user for a new password, entered twice so a typo cannot make the
+	 * file unreadable. An empty password is allowed.
+	 *
+	 * @return new password (empty array for an empty password), null if the user canceled
+	 */
+	private char[] askForNewPassword() {
+		final CredentialsDialog credentialsDialog = new CredentialsDialog(this, getTitle(), text_PasswordText, false, true, null, text_Password, text_OK, text_Cancel);
+		credentialsDialog.setPasswordConfirmation(true);
+		final Credentials credentials = credentialsDialog.open();
+		if (credentials == null) {
+			return null;
+		}
+		return credentials.getPassword() == null ? new char[0] : credentials.getPassword();
+	}
+
+	/**
+	 * Stores the current data entry under the name entered in the name field, or
+	 * else under the single selected entry's name. Does nothing if neither is given.
+	 */
+	private void storeEnteredOrSelectedEntry() {
+		final SecureDataStore dataStore = getOrCreateDataStore();
+		if (StringUtilities.isNotBlank(newNameField.getText())) {
+			dataStore.addEntry(newNameField.getText(), currentDataEntry);
+		} else if (preferencesTable.getSelectedRows().length == 1) {
+			dataStore.addEntry(getEntryName(preferencesTable.getSelectedRows()[0]), currentDataEntry);
+		}
+	}
+
+	/**
+	 * Saves the data store with the given password. An error is shown if saving
+	 * fails.
+	 *
+	 * @param password password to encrypt the file with, not wiped here
+	 * @return true if the file was saved
+	 */
+	private boolean saveDataStore(final char[] password) {
+		try {
+			getOrCreateDataStore().save(preferencesFile, password);
+			return true;
+		} catch (final Exception e) {
+			e.printStackTrace();
+			new QuestionDialog(this, getTitle(), LangResources.get("cannotSaveKeystore") + "\n" + e.getMessage(), LangResources.get("ok")).withBackgroundColor(SwingColor.LightRed).open();
+			return false;
+		}
 	}
 
 	/**
@@ -368,12 +455,26 @@ public class SecurePreferencesDialog extends ModalDialog<Boolean> {
 	private void saveAndClose() {
 		final char[] password = getPassword();
 		try {
-			getOrCreateDataStore().save(preferencesFile, password);
-		} catch (final Exception e) {
-			e.printStackTrace();
-			new QuestionDialog(this, getTitle(), LangResources.get("cannotSaveKeystore") + "\n" + e.getMessage(), LangResources.get("ok")).withBackgroundColor(SwingColor.LightRed).open();
+			saveDataStore(password);
 		} finally {
 			wipe(password);
+		}
+		currentDataEntry = null;
+		dispose();
+	}
+
+	/**
+	 * Saves the data store with a new password and closes the dialog. The new
+	 * password becomes the known password only if saving succeeded, so
+	 * {@link #getPassword()} always matches the password of the file on disk.
+	 *
+	 * @param newPassword new password (taken over, not copied)
+	 */
+	private void saveWithNewPasswordAndClose(final char[] newPassword) {
+		if (saveDataStore(newPassword)) {
+			setPasswordInternal(newPassword);
+		} else {
+			wipe(newPassword);
 		}
 		currentDataEntry = null;
 		dispose();
